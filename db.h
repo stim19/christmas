@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <sqlite3.h>
+#include <memory>
 
 struct Recipient {
     int id = 0;
@@ -12,17 +13,18 @@ struct Recipient {
 };
 
 
-class DBManager {
+class DBEngine {
     public:
-        bool Initialize(const std::string& dbPath);
-        void Close();
-
-        bool AddRecipient(const std::string& name, const std::string& relationship);
-        std::vector<Recipient> LoadUsers();
-
+        DBEngine(const std::string& dbPath, bool debug=false);   // constructor opens a db file
+        ~DBEngine();                                            // destructor closes the db file
     private:
+        //TODO: Use Pointer to IMPLementation to hide implementation details like sqlite3* from DB interface
+        //struct Impl;                                            // forward declaration
+        //std::unique_ptr<Impl> pImpl; 
         sqlite3* db = nullptr;
-        bool execute(const std::string& sql, const std::string& msg);
+        bool debugMode;
+        void log(const std::string& msg);
 };
+
 
 #endif
