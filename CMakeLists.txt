@@ -5,6 +5,15 @@ project(GiftPlanner)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+include(FetchContent)
+
+# Fetch Google Test
+FetchContent_Declare(
+  googletest
+  URL https://github.com/google/googletest/archive/release-1.12.1.zip
+)
+FetchContent_MakeAvailable(googletest)
+
 # Create static libraries 
 add_library(dbengine STATIC
    db.cpp
@@ -13,10 +22,14 @@ add_library(dbengine STATIC
 target_include_directories(dbengine 
 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
+
 add_executable(test_app tests/test_db.cpp)
+target_link_libraries(test_app PRIVATE dbengine gtest_main)
+
 enable_testing()
-target_link_libraries(test_app PRIVATE dbengine)
-add_test(NAME DBTest COMMAND test_db)
+include(GoogleTest)
+
+#gtest_discover_tests(test_app)
 
 #option(BUILD_APP "Build main application" ON)
 #option(BUILD_TESTS "Build tests" ON)
@@ -32,6 +45,8 @@ add_test(NAME DBTest COMMAND test_db)
 #=========================================#
 #		Tests			  #
 #=========================================#
+
+add_test(NAME DBTest COMMAND test_app)
 
 # Optional test executable
 #if(BUILD_TESTS)
