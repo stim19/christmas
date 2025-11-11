@@ -1,11 +1,42 @@
 #include <iostream>
 #include <gtest/gtest.h>
+#include <sqlite3.h>
 #include "../db.h"
+#include "../logger.h"
+#include <sstream>
 
-TEST(DBConstructor, Logs) {
-    DBEngine db("test.db", true);
+/*
+ * Logger tests
+ */
+TEST(LoggerTest, DisabledShouldNotPrint) {
+    Logger::enabled = false;
+
+    std::ostringstream buffer;
+    std::streambuf* old = std::cout.rdbuf(buffer.rdbuf());
+    Logger::info("This should not print");
+    std::cout.rdbuf(old);
+    EXPECT_TRUE(buffer.str().empty());
+}
+
+TEST(LoggerTest, EnabledPrintsToConsole) {
+    Logger::enabled = true;
+
+    std::ostringstream buffer;
+    std::streambuf* old = std::cout.rdbuf(buffer.rdbuf());
+    Logger::info("test message");
+    std::cout.rdbuf(old);
+    std::string out = buffer.str();
+    EXPECT_NE(out.find("test message"), std::string::npos);
+}
+
+TEST(DBConstructor, Connection) {
+    DBEngine db(":memory:", true);
     // If constructor crashes, test fails automatically
     SUCCEED();
+    sqlite3* conn = db.get();
+    ASSERT_NE(conn, nullptr);
+    int rc = sqlite3_exec(conn, "CREATE TABLE test(id INT);", 0, nullptr, nullptr);
+    ASSERT_TRUE(rc == SQLITE_OK);
 }
 
 /*TEST(DBLoad, Sample) {
@@ -15,7 +46,7 @@ TEST(DBConstructor, Logs) {
 }
 */
 
-TEST(DBExec, Logs) {
+TEST(DBEngineTest, Execute) {
     DBEngine db("test.db", true);
     std::string GoodSql = R"(
         CREATE TABLE IF NOT EXISTS test (
@@ -31,6 +62,7 @@ TEST(DBExec, Logs) {
     )";
     EXPECT_FALSE(db.execute(BadSql, "Select all from TEST table"));
 }
+
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
