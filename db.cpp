@@ -1,5 +1,5 @@
-#include "db.h"
-#include "logger.h"
+#include "db.hpp"
+#include "logger.hpp"
 #include <iostream>
 
 //TODO: rewrite using PIMPL
@@ -8,8 +8,7 @@
 //  bool debugMode;
 //};
 
-
-
+// This engine does not support multi-threaded operations yet
 DBEngine::DBEngine(const std::string& dbPath, bool debug) {
     
     // enable logging
@@ -38,6 +37,7 @@ DBEngine::~DBEngine(){
  * @return true if execution succeeds, false otherwise.
  *
  */
+//execute
 bool DBEngine::execute(const std::string& sql, const std::string& msg) {
     std::lock_guard<std::mutex> lock(mtx);
     char* errMsg = nullptr;
@@ -47,11 +47,11 @@ bool DBEngine::execute(const std::string& sql, const std::string& msg) {
         return false;
     }
 
-    Logger::info("OK: "+ msg);
+    Logger::info("[DB] OK: "+ msg);
     return true;
 }
-
-
+//'begin' a transaction
+// the engine allows only one transaction at a time per connection
 void DBEngine::begin() {
     std::lock_guard<std::mutex> lock(mtx);
     if(active)
@@ -65,7 +65,7 @@ void DBEngine::begin() {
     active = true;    
     Logger::info("[TRANSACTION]: Starting transaction");
 }
-
+//commit
 void DBEngine::commit() {
     std::lock_guard<std::mutex> lock(mtx);
     if(!active)
@@ -80,52 +80,20 @@ void DBEngine::commit() {
     active = false; 
     Logger::info("[TRANSACTION]: Commit success");
 }
-
+//rollback
 void DBEngine::rollback() {
     std::lock_guard<std::mutex> lock(mtx);
     if (!active) return; // nothing to rollback
     char* errMsg = nullptr;
     if(sqlite3_exec(db, "ROLLBACK;", nullptr, nullptr, &errMsg) != SQLITE_OK) {
+        active=false;
         std::string msg = errMsg ? errMsg : "Rollback failed" ;
         Logger::error("[TRANSACTION]: "+msg);
     }
     active = false; 
     Logger::info("[TRANSACTION]: Rollback success");
 }
-
-/**
- * Implement query method
- * @params sql, limit, offset
- * @returns a struct:
- *      vector<string> col // column names;
- *      vector<vector<string, variant<int, string, null>>>;
- * prepare stmt*
- * count columns: col_count(stmt)
- * fetch col names :row_name(stmt) -> store in columns[]
- * step(stmt) == row
- * for i : col_count
- * get_type(stmt, i)
- * switch type:
- * case 1:
- *  row push int
- * case 2:
- *  row push = reinterpert const char* column_text
- * case 3:
- *  row push null
- * default:
- *  invalid
- * where row is variant <int, string, null>
- *
- * app layer:
- * struct user;
- * users=query(sql)
- * for u : users
- * vector users
- * user({result[i][0], result[i][1], ...)
- * or for column[i]
- * value = row [i]
- */
-
+//returns a db handle
 sqlite3* DBEngine::get() {
     return db;
 }
@@ -138,7 +106,7 @@ sqlite3* DBEngine::get() {
  * Transaction t;   //initiates transaction
  * Execute statements;
  * t.commit()       // commit changes, automatically rollback otherwise
- *
+ * 
  */
 Transaction::Transaction(DBEngine* dbEngine) : db(dbEngine) {
     db->begin();            // DBEngine handles the actual BEGIN
@@ -152,51 +120,107 @@ void Transaction::commit() {
     db->commit();           // DBEngine handles the actual COMMIT
     committed = true;       // mark as committed so destructor won't rollback
 }
+//TODO: Implement none, active, committing, rollingback states for Transactions
 
 
-/*
+/* 
+ * Class: PreparedStatement
  *
  */
-
 PreparedStatement::PreparedStatement(sqlite3* db, const std::string& sql) {
     if(sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
         throw std::runtime_error(sqlite3_errmsg(db));
     }
+    prepared=true;
     std::cout << "Prepared statement" << std::endl;
 }
-bool PreparedStatement::step() {
-    std::cout << "inserted" << std::endl;
-    return sqlite3_step(stmt) == SQLITE_ROW;
-}
-
-void PreparedStatement::reset() {
-        sqlite3_reset(stmt);
-        std::cout <<"Statement reset" <<std::endl;
-    }
-
-void PreparedStatement::finalize() {
-        sqlite3_finalize(stmt);
-        stmt = nullptr;
-        std::cout << "Finalized" << std::endl;
-    }
-    
-void PreparedStatement::bind(int index, const std::string& value) {
-        sqlite3_bind_text(stmt, index, value.c_str(), -1, SQLITE_TRANSIENT);
-    }
-
-void PreparedStatement::bind(int index, int value) {
-        sqlite3_bind_int(stmt, index, value);
-    }
-
 PreparedStatement::~PreparedStatement() {
-    if(stmt) 
-        sqlite3_finalize(stmt);
+    if(stmt) {
+        finalize();
+        finalized=true;
+    }
+}
+//step a stmt
+int PreparedStatement::step() {
+    std::cout << "inserted" << std::endl;
+    return sqlite3_step(stmt);
+}
+//reset a stmt
+void PreparedStatement::reset() {
+    sqlite3_reset(stmt);
+    std::cout <<"Statement reset" <<std::endl;
+}
+//finalize a prepared stmt
+void PreparedStatement::finalize() {
+    if(sqlite3_finalize(stmt)!=SQLITE_OK)
+        throw std::runtime_error("Finalize failed");
+    stmt = nullptr;
+    std::cout << "Finalized" << std::endl;
+}
+//bind text  
+void PreparedStatement::bind(int index, const std::string& value) {
+    if(sqlite3_bind_text(stmt, index, value.c_str(), -1, SQLITE_TRANSIENT)!=SQLITE_OK)
+        throw std::runtime_error("Bind failed at index " + std::to_string(index) + "(text)");
+}
+//bind int
+void PreparedStatement::bind(int index, int value) {
+    if(sqlite3_bind_int(stmt, index, value)!=SQLITE_OK)
+        throw std::runtime_error("Bind failed at index " + std::to_string(index) + "(int)");
+}
+//bind double
+void PreparedStatement::bind(int index, double value) {
+    if(sqlite3_bind_double(stmt, index, value)!=SQLITE_OK)
+        throw std::runtime_error("Bind failed at index " + std::to_string(index) + "(double)");
+}
+//bind null
+void PreparedStatement::bind(int index) {
+    if(sqlite3_bind_null(stmt, index)!=SQLITE_OK) 
+        throw std::runtime_error("Bind failed at index " + std::to_string(index) + "(null)");
+}
+//bind bool
+void PreparedStatement::bind(int index, bool value) {
+    if(sqlite3_bind_int(stmt, index, value ? 1:0)!=SQLITE_OK)
+        throw std::runtime_error("Bind failed at index " + std::to_string(index) + "(bool)");
+}
+// get column count
+int PreparedStatement::columnCount() {
+    return sqlite3_column_count(stmt);
+}
+//get column name at index
+const char* PreparedStatement::columnName(int index) {
+    return sqlite3_column_name(stmt, index);
+}
+//get column type at index
+int PreparedStatement::columnType(int index) {
+    return sqlite3_column_type(stmt, index);
+}
+//returns a sqlite3_stmt* handle
+sqlite3_stmt* PreparedStatement::get() {
+    return stmt;
 }
 
 
+//TODO: implement LRU cache for prepared statements, customizable max 16
+/*
+ * The LRU statement cache will hold mappings from sql text to sqlite3_stmt. When you prepare(), check if statement exists in cache:
+ *      - if yes, it must be reset() and reused
+ *      - if no, create a new one and insert into cache
+ *  When capacity is exceeded, evict least recently used and finalize the stmt before eviction.
+ *  Tracking can be done using a linked list or an ordered map keyed by recency.
+ */
 
+//TODO: implement returning rows with automatic type handling using row template
 
+//TODO: implement query planner
+// Rows can be streamed rather than buffered for efficiency
 
+// Don't mix caching with user owned stmt on the same SQL string. Statements are intended to be owned by the LRU cache or a RAII wrapper
+// For statement-level profiling:
+//
+//     flags to be implemented per statement: 
+//     - "executed_in_tx"
+//     - "is_cached"
+//
 
 
 

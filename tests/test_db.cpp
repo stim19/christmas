@@ -138,7 +138,21 @@ TEST_F(DBEngineTest, ShouldCommitTransaction) {
     ASSERT_EQ(count, 1);
 }
 
-
+/*
+ * Prepared Statement tests
+ */
+TEST_F(DBEngineTest, PreparedStatementBasicFunctionality) {
+    PreparedStatement insert(db, "INSERT INTO test VALUES(?, ?);");
+    REQUIRE(insert.bind(1, 1));
+    REQUIRE(insert.bind(2, "bob"));
+    REQUIRE(insert.step()==SQLITE_DONE); //TODO: step should return OK, ROW, BUSY
+    REQUIRE_NOTHROW(insert.reset());
+}
+/*
+TEST_F(DBEngineTest, PreparedStatementShouldThrowOnViolations) {
+    PreparedStatement
+}
+*/
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
