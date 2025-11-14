@@ -7,6 +7,8 @@
 #include <map>
 #include <stdexcept>
 #include <variant>
+#include <common.hpp>
+#include <exception.hpp>
 
 struct Recipient {
     int id = 0;
@@ -14,6 +16,8 @@ struct Recipient {
     std::string relationship;
     double budgetLimit = 0.0;
 };
+
+namespace Engine {
 
 class Row {
     public:
@@ -200,6 +204,7 @@ class Transaction {
  *   stmt.step();
  *  }
  */
+
 class PreparedStatement {
     public:
         PreparedStatement(sqlite3* db, const std::string& sql);
@@ -213,7 +218,7 @@ class PreparedStatement {
         //bind null
         void bind(int index);
         //bind text
-        void bind(int index, const std::string& value);
+        void bind(int index, const char* value);
         //bind blob
         void bind(int index, const void*data, int size);
         //bind bool
@@ -239,6 +244,10 @@ class PreparedStatement {
         sqlite3_stmt* stmt;
         bool finalized = false;
         bool prepared;
+        //TODO: implement proper state enums
+        bool isReset=true;
 };
+
+} // namespace Engine
 
 #endif

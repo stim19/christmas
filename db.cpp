@@ -2,6 +2,8 @@
 #include "logger.hpp"
 #include <iostream>
 
+using namespace Engine;
+
 //TODO: rewrite using PIMPL
 //struct DB::Impl {
 //  sqlite3* dbHandle;
@@ -128,8 +130,13 @@ void Transaction::commit() {
  *
  */
 PreparedStatement::PreparedStatement(sqlite3* db, const std::string& sql) {
-    if(sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
-        throw std::runtime_error(sqlite3_errmsg(db));
+    int rc=sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr); 
+    if(rc != SQLITE_OK) {
+        if(rc == SQLITE_ERROR)
+        {
+            std::string msg = sqlite3_errmsg(db);
+            throw SyntaxError("SQL Error during execution: "+ msg, rc);
+        }
     }
     prepared=true;
     std::cout << "Prepared statement" << std::endl;
@@ -140,47 +147,124 @@ PreparedStatement::~PreparedStatement() {
         finalized=true;
     }
 }
+//is prepared
+bool PreparedStatement::isPrepared() {
+    return prepared;
+}
+// is finalized
+bool PreparedStatement::isFinalized() {
+    return finalized;
+}
 //step a stmt
 int PreparedStatement::step() {
+    if (!stmt)
+        // after statement is finalized, step operation is not permitted
+        throw StatementStateError("Cannot call step() on a finalized or uninitialized statement.", 1);
+    
+    // after a step(), statement must be reset for binding or else should throw a state error
+    isReset=false;         
+       
+    int rc=sqlite3_step(stmt);
+    if(rc==SQLITE_CONSTRAINT) {
+        reset(); // statement is reset after exception because calling finalize after an invalid step() throws
+        throw ConstraintError("Database constraint violated: ", rc); //TODO: should add database error message?
+    }
+    if(rc==SQLITE_ERROR) {
+        reset();
+        throw SyntaxError("SQL Error during execution: ", rc);
+    } 
+    //TODO: replace with proper logging message
     std::cout << "inserted" << std::endl;
-    return sqlite3_step(stmt);
+
+    return rc;
 }
 //reset a stmt
 void PreparedStatement::reset() {
+    if(finalized)
+        throw StatementStateError("Cannot call step() on a finalized or uninitialized statement.", 1); // after statement is finalized, operation not permitted
     sqlite3_reset(stmt);
+    isReset=true;
     std::cout <<"Statement reset" <<std::endl;
 }
 //finalize a prepared stmt
 void PreparedStatement::finalize() {
+    if(finalized) { return; }
     if(sqlite3_finalize(stmt)!=SQLITE_OK)
         throw std::runtime_error("Finalize failed");
+    finalized=true;
     stmt = nullptr;
     std::cout << "Finalized" << std::endl;
 }
+//bindings:
+/*
+* TODO: imlpement exceptions for
+* Error codes:
+* SQLITE_OK: 0 Success // Return or proceed
+* SQLITE_RANGE: 25 Parameter index is out of range // BindRangeError
+* SQLITE_NOMEM: 7 Out of memory // Resource exception
+*/
 //bind text  
-void PreparedStatement::bind(int index, const std::string& value) {
-    if(sqlite3_bind_text(stmt, index, value.c_str(), -1, SQLITE_TRANSIENT)!=SQLITE_OK)
-        throw std::runtime_error("Bind failed at index " + std::to_string(index) + "(text)");
+void PreparedStatement::bind(int index, const char* value) {
+    if(!stmt)
+        throw StatementStateError("Statement must be reset() before binding", 1);
+    int rc=sqlite3_bind_text(stmt, index, value, -1, SQLITE_TRANSIENT);
+    if(rc != SQLITE_OK) {
+        if(rc == SQLITE_RANGE)
+            throw BindRangeException("Parameter index is out of range " + std::to_string(index) + "(text)", rc);
+        if(rc == SQLITE_NOMEM)
+            throw ResourceException("Out of memory", rc);
+    }
 }
 //bind int
 void PreparedStatement::bind(int index, int value) {
-    if(sqlite3_bind_int(stmt, index, value)!=SQLITE_OK)
-        throw std::runtime_error("Bind failed at index " + std::to_string(index) + "(int)");
+    if(!isReset)
+        throw StatementStateError("Statement must be reset() before binding", 1);
+    int rc=sqlite3_bind_int(stmt, index, value);
+    if(rc != SQLITE_OK) {
+        if(rc == SQLITE_RANGE)
+            throw BindRangeException("Parameter index is out of range " + std::to_string(index) + "(text)", rc);
+        if(rc == SQLITE_NOMEM)
+            throw ResourceException("Out of memory", rc);
+    }
 }
 //bind double
 void PreparedStatement::bind(int index, double value) {
-    if(sqlite3_bind_double(stmt, index, value)!=SQLITE_OK)
-        throw std::runtime_error("Bind failed at index " + std::to_string(index) + "(double)");
+    if(!isReset)
+        throw StatementStateError("Statement must be reset() before binding", 1);
+
+    int rc=sqlite3_bind_double(stmt, index, value);
+    if(rc != SQLITE_OK) {
+        if(rc == SQLITE_RANGE)
+            throw BindRangeException("Parameter index is out of range " + std::to_string(index) + "(text)", rc);
+        if(rc == SQLITE_NOMEM)
+            throw ResourceException("Out of memory", rc);
+    }
 }
 //bind null
 void PreparedStatement::bind(int index) {
-    if(sqlite3_bind_null(stmt, index)!=SQLITE_OK) 
-        throw std::runtime_error("Bind failed at index " + std::to_string(index) + "(null)");
+    if(!isReset)
+        throw StatementStateError("Statement must be reset() before binding", 1);
+
+    int rc=sqlite3_bind_null(stmt, index);
+    if(rc != SQLITE_OK) {
+        if(rc == SQLITE_RANGE)
+            throw BindRangeException("Parameter index is out of range " + std::to_string(index) + "(text)", rc);
+        if(rc == SQLITE_NOMEM)
+            throw ResourceException("Out of memory", rc);
+    }
 }
 //bind bool
 void PreparedStatement::bind(int index, bool value) {
-    if(sqlite3_bind_int(stmt, index, value ? 1:0)!=SQLITE_OK)
-        throw std::runtime_error("Bind failed at index " + std::to_string(index) + "(bool)");
+    if(!isReset)
+        throw StatementStateError("Statement must be reset() before binding", 1);
+
+    int rc=sqlite3_bind_int(stmt, index, value ? 1:0);
+    if(rc != SQLITE_OK) {
+        if(rc == SQLITE_RANGE)
+            throw BindRangeException("Parameter index is out of range " + std::to_string(index) + "(text)", rc);
+        if(rc == SQLITE_NOMEM)
+            throw ResourceException("Out of memory", rc);
+    }
 }
 // get column count
 int PreparedStatement::columnCount() {

@@ -1,9 +1,11 @@
 #include <iostream>
 #include <gtest/gtest.h>
 #include <sqlite3.h>
-#include "../db.h"
-#include "../logger.h"
+#include "../db.hpp"
+#include "../logger.hpp"
 #include <sstream>
+
+using namespace Engine;
 
 /*
  * Logger tests
@@ -36,7 +38,7 @@ class DBEngineTest :
 
             static void SetUpTestSuite() {
                 db = new DBEngine(":memory:", true);
-                db->execute("CREATE TABLE test (id INT, name TEXT);", "create test table");
+                db->execute("CREATE TABLE test (id INT, name TEXT NOT NULL);", "create test table");
             }
             static void TearDownTestSuite() {
                 delete db;
@@ -142,17 +144,57 @@ TEST_F(DBEngineTest, ShouldCommitTransaction) {
  * Prepared Statement tests
  */
 TEST_F(DBEngineTest, PreparedStatementBasicFunctionality) {
-    PreparedStatement insert(db, "INSERT INTO test VALUES(?, ?);");
-    REQUIRE(insert.bind(1, 1));
-    REQUIRE(insert.bind(2, "bob"));
-    REQUIRE(insert.step()==SQLITE_DONE); //TODO: step should return OK, ROW, BUSY
-    REQUIRE_NOTHROW(insert.reset());
+    PreparedStatement insert(db->get(), "INSERT INTO test VALUES(?, ?);");
+    ASSERT_NO_THROW(insert.bind(1, 1));
+    ASSERT_NO_THROW(insert.bind(2, "bob"));
+   
+    ASSERT_EQ(insert.step(), SQLITE_DONE); //TODO: step should return OK, ROW, BUSY
+    ASSERT_NO_THROW(insert.reset());
 }
-/*
-TEST_F(DBEngineTest, PreparedStatementShouldThrowOnViolations) {
-    PreparedStatement
+TEST_F(DBEngineTest, LifecycleTEst) {
+    PreparedStatement insert(db->get(), "INSERT INTO test VALUES(?, ?);");
+    ASSERT_TRUE(insert.isPrepared());
+    insert.finalize();
+    ASSERT_EQ(insert.get(), nullptr);
+    ASSERT_TRUE(insert.isFinalized());
+    ASSERT_NO_THROW(insert.finalize()); 
 }
-*/
+
+// Constraint violation tests
+TEST_F(DBEngineTest, StatementShouldThrowOnViolations) {
+    PreparedStatement insert(db->get(), "INSERT INTO test(id) VALUES(?);");
+    insert.bind(1, 1);
+    ASSERT_THROW(insert.step(), ConstraintError);
+}
+//TODO: next write tests for binding parameter out of range
+TEST_F(DBEngineTest, BindOutOfRange) {
+    PreparedStatement insert(db->get(), "INSERT INTO test VALUES(?, ?);");
+    insert.bind(1,1);
+    insert.bind(2,"bob");
+    ASSERT_THROW(insert.bind(3, "99999999"), BindRangeException); 
+}
+// Should throw when SQL syntax error
+TEST_F(DBEngineTest, SQLSyntaxError) {
+    ASSERT_THROW(PreparedStatement insert(db->get(), "INSERT INTO test ID VALUES(?, ?);"), SyntaxError);
+    try {
+            PreparedStatement insert(db->get(), "INSERT INTO test ID VALUES(?, ?);");
+    }
+    catch(SyntaxError& e) {
+        std::cout << e.what() << std::endl;
+    }
+}
+//Should throw when binding without reset
+TEST_F(DBEngineTest, BindWithoutReset) {
+    PreparedStatement insert(db->get(), "INSERT INTO test VALUES(?, ?);");
+    insert.bind(1, 1);
+    insert.bind(2, "bob");
+    insert.step();
+    ASSERT_THROW(insert.bind(1, 2), StatementStateError);
+    insert.reset();
+    ASSERT_NO_THROW(insert.bind(1, 2));
+    ASSERT_NO_THROW(insert.bind(2, "bob2"));
+    ASSERT_NO_THROW(insert.step());
+}
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
