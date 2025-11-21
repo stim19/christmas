@@ -9,15 +9,54 @@
 #include <variant>
 #include <common.hpp>
 #include <exception.hpp>
-
-struct Recipient {
-    int id = 0;
-    std::string name;
-    std::string relationship;
-    double budgetLimit = 0.0;
-};
+#include <memory>
+#include <unordered_map>
+#include <list>
 
 namespace Engine {
+
+class DBEngine;
+class Transactions;
+class PreparedStatement;
+
+class LRUCache;
+
+
+enum ENGINE_CODES {
+    ENGINE_OK,
+    ENGINE_ERROR,
+    ENGINE_CONNECTION_ERROR,
+    ENGINE_ROLLBACK_FAILURE,
+    ENGINE_COMMIT_FAILURE,
+    ENGINE_SYNTAX_ERROR,
+    ENGINE_STEP_ERROR,
+    ENGINE_BIND_ERROR,
+    ENGINE_ROW,
+    ENGINE_FINALIZE_ERROR,
+    ENGINE_BUSY
+};
+
+class LRUCache {
+    private:
+        struct Node {
+            std::string key;
+            PreparedStatement* value;
+            Node* prev;
+            Node* next;
+        };
+        size_t capacity;
+        std::unordered_map<std::string, Node*> map;
+        Node* head;
+        Node* tail;
+        void moveToFront(Node* n);
+        void removeNode(Node* n);
+        void pushFront(Node* n);
+    public:
+        LRUCache(size_t capacity):capacity(capacity){}
+        void put(const std::string& key, PreparedStatement* stmt);
+        PreparedStatement* get(const std::string& key);
+};
+
 
 class Row {
     public:
@@ -30,22 +69,18 @@ class Row {
         int getInt(int col) const {
             return sqlite3_column_int(stmt_, col);
         }
-
         //long
         long long getInt64(int col) const {
             return sqlite3_column_int64(stmt_, col);
         }
-
         //double
         double getDouble(int col) const {
             return sqlite3_column_double(stmt_, col);
         }
-
         //raw text
         const unsigned char* getTextRaw(int col) const {
             return sqlite3_column_text(stmt_, col);
         }
-        
         //string
         std::string getText(int col) const {
             const unsigned char* text = sqlite3_column_text(stmt_, col);
@@ -53,7 +88,6 @@ class Row {
                 return "";
             return std::string(reinterpret_cast<const char*>(text));
         }
-
         //blob
         std::string getBlob(int col) const {
             const void* blob = sqlite3_column_blob(stmt_, col);
@@ -62,7 +96,6 @@ class Row {
                 return "";
             return std::string(static_cast<const char*>(blob), size);
         }
-
         //null
         bool isNull(int col) const {
             return sqlite3_column_type(stmt_, col) == SQLITE_NULL;
@@ -71,7 +104,6 @@ class Row {
     private:
         sqlite3_stmt* stmt_;
 };
-
 // Templates specifications for Row
 // int
 template<>
@@ -98,7 +130,7 @@ template<>
 inline bool Row::get<bool>(int col) const {
     return getInt(col)!=0;
 }
-// Completed now users can perform easy type conversion using Row or Row templates
+// Completed. Users can now perform easy type conversion using Row templates
 
 
 /* 
@@ -125,23 +157,29 @@ inline bool Row::get<bool>(int col) const {
 class DBEngine {
     public:
         
-        DBEngine(const std::string& dbPath, bool debug=false);   // constructor opens a db file
+        DBEngine(const std::string& dbPath, bool debug=false, size_t cacheSize=16);   // constructor opens a db file
         ~DBEngine();                                             // destructor closes the db file
 
         // Begins a new transaction. Throws if a transaction is already active
-        void begin();
+        int begin();
 
         // Commits the current transaction
-        void commit();
+        int commit();
 
         // Roll back the current transaction. Safe to call if no active transaction.
-        void rollback();
+        int rollback();
 
         // Returns true if transaction active
         bool isActive() const { return active; }
         
         // Execute an arbitary SQL statement
         bool execute(const std::string& sql, const std::string& msg); 
+
+        const char* getLastErrorMsg();
+
+        PreparedStatement* getFromCached(const std::string& key);
+        void addToCache(const std::string& key, PreparedStatement* value);
+         
 
         sqlite3* get();
         //TODO: implement query method with variants, use maps. use struct for rows and columns.
@@ -156,11 +194,13 @@ class DBEngine {
         //TODO: Use Pointer to IMPLementation to hide implementation details like sqlite3* from DB interface
         //struct Impl;                                            // forward declaration
         //std::unique_ptr<Impl> pImpl; 
-        
         sqlite3* db = nullptr;
         bool active = false;                            // track active transactions
         std::mutex mtx;
+        size_t cacheSize;
+        LRUCache* stmtCache;
 };
+
 
 /* 
  * Class: Transaction
@@ -182,15 +222,26 @@ class DBEngine {
  * }
  *
  */
+enum class TransactionState {
+    NONE,
+    ACTIVE,
+    COMMITTED,
+    ROLLED_BACK,
+    ERROR
+};
+
 class Transaction {
     public:
         explicit Transaction(DBEngine* dbEngine);
-        ~Transaction(); 
+        ~Transaction();
+        int getTransactionState();
         void commit();
     private:
         DBEngine* db;
         bool committed = false;
+        int state;
 };
+
 
 
 /*
@@ -205,9 +256,11 @@ class Transaction {
  *  }
  */
 
+
+
 class PreparedStatement {
     public:
-        PreparedStatement(sqlite3* db, const std::string& sql);
+        PreparedStatement(DBEngine* db, const std::string& sql);
         ~PreparedStatement();
         //bind int
         void bind(int index, int value);
@@ -219,6 +272,8 @@ class PreparedStatement {
         void bind(int index);
         //bind text
         void bind(int index, const char* value);
+        //bind text string
+        void bind(int index, std::string value);
         //bind blob
         void bind(int index, const void*data, int size);
         //bind bool
@@ -237,16 +292,18 @@ class PreparedStatement {
         int getParameterCount();
         std::string getParameterName(int index);
         int getParameterIndex(const std::string& name);
-
+        
         sqlite3_stmt* get();
 
     private:
+        DBEngine* db_;
         sqlite3_stmt* stmt;
         bool finalized = false;
         bool prepared;
         //TODO: implement proper state enums
         bool isReset=true;
 };
+
 
 } // namespace Engine
 

@@ -151,7 +151,7 @@ TEST_F(DBEngineTest, PreparedStatementBasicFunctionality) {
     ASSERT_EQ(insert.step(), SQLITE_DONE); //TODO: step should return OK, ROW, BUSY
     ASSERT_NO_THROW(insert.reset());
 }
-TEST_F(DBEngineTest, LifecycleTEst) {
+TEST_F(DBEngineTest, PreparedStatementLifecycleTest) {
     PreparedStatement insert(db->get(), "INSERT INTO test VALUES(?, ?);");
     ASSERT_TRUE(insert.isPrepared());
     insert.finalize();
@@ -161,20 +161,20 @@ TEST_F(DBEngineTest, LifecycleTEst) {
 }
 
 // Constraint violation tests
-TEST_F(DBEngineTest, StatementShouldThrowOnViolations) {
+TEST_F(DBEngineTest, StatementShouldThrowOnConstraintViolations) {
     PreparedStatement insert(db->get(), "INSERT INTO test(id) VALUES(?);");
     insert.bind(1, 1);
     ASSERT_THROW(insert.step(), ConstraintError);
 }
 //TODO: next write tests for binding parameter out of range
-TEST_F(DBEngineTest, BindOutOfRange) {
+TEST_F(DBEngineTest, ShouldThrowWhenBindingOutOfRange) {
     PreparedStatement insert(db->get(), "INSERT INTO test VALUES(?, ?);");
     insert.bind(1,1);
     insert.bind(2,"bob");
     ASSERT_THROW(insert.bind(3, "99999999"), BindRangeException); 
 }
 // Should throw when SQL syntax error
-TEST_F(DBEngineTest, SQLSyntaxError) {
+TEST_F(DBEngineTest, ShouldThrowSQLSyntaxError) {
     ASSERT_THROW(PreparedStatement insert(db->get(), "INSERT INTO test ID VALUES(?, ?);"), SyntaxError);
     try {
             PreparedStatement insert(db->get(), "INSERT INTO test ID VALUES(?, ?);");
@@ -184,7 +184,7 @@ TEST_F(DBEngineTest, SQLSyntaxError) {
     }
 }
 //Should throw when binding without reset
-TEST_F(DBEngineTest, BindWithoutReset) {
+TEST_F(DBEngineTest, ShouldThrowWhenBindWithoutReset) {
     PreparedStatement insert(db->get(), "INSERT INTO test VALUES(?, ?);");
     insert.bind(1, 1);
     insert.bind(2, "bob");
