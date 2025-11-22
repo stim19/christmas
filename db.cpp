@@ -89,17 +89,18 @@ DBEngine::DBEngine(const std::string& dbPath, bool debug, size_t cacheSize) {
     Logger::info("[DB]: Initialized statement cache");
 }
 DBEngine::~DBEngine(){
-    if(db){ 
-        sqlite3_close(db);
-        db=nullptr;
-        Logger::info("[DB]: Closed DB successfully");
-    }
+    
     if(stmtCache) {
         Logger::info("[DB]: Clearing statement cache");
         stmtCache->clearCache();
         delete stmtCache;
         stmtCache = nullptr;
         Logger::info("[DB]: Cleared statement cache");
+    }
+    if(db){ 
+        sqlite3_close(db);
+        db=nullptr;
+        Logger::info("[DB]: Closed DB successfully");
     }
 }
 
