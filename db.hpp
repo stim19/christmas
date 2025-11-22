@@ -51,10 +51,12 @@ class LRUCache {
         void moveToFront(Node* n);
         void removeNode(Node* n);
         void pushFront(Node* n);
+        
     public:
-        LRUCache(size_t capacity):capacity(capacity){}
+        LRUCache(size_t capacity):capacity(capacity), head(nullptr), tail(nullptr){}
         void put(const std::string& key, PreparedStatement* stmt);
         PreparedStatement* get(const std::string& key);
+        void clearCache();
 };
 
 

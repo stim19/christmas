@@ -39,6 +39,7 @@ PreparedStatement* LRUCache::get(const std::string& key) {
         return nullptr;
 
     Node* n = it->second;
+    n->value->reset();
     moveToFront(n);
     return n->value;
 }
@@ -62,7 +63,14 @@ void LRUCache::put(const std::string& key, PreparedStatement* value) {
         delete old;
     }
 }
-
+//finalize and free cache
+void LRUCache::clearCache() {
+    for (const auto& it : map) {
+        Node* n = it.second;
+        n->value->finalize();
+        delete n;
+    }
+}
 
 // This engine does not support multithreading
 DBEngine::DBEngine(const std::string& dbPath, bool debug, size_t cacheSize) {
@@ -87,6 +95,9 @@ DBEngine::~DBEngine(){
         Logger::info("[DB]: Closed DB successfully");
     }
     if(stmtCache) {
+        Logger::info("[DB]: Clearing statement cache");
+        stmtCache->clearCache();
+        delete stmtCache;
         stmtCache = nullptr;
         Logger::info("[DB]: Cleared statement cache");
     }
@@ -230,6 +241,8 @@ PreparedStatement::PreparedStatement(DBEngine* db, const std::string& sql):db_(d
     else {
         Logger::info("Getting statement cache");
         stmt = db->getFromCached(sql)->get();
+        //clear bindings
+        sqlite3_clear_bindings(stmt);
     }
 
     prepared=true;
@@ -291,6 +304,7 @@ void PreparedStatement::reset() {
 }
 //finalize a prepared stmt
 void PreparedStatement::finalize() {
+    if(isFinalized()) { return; }
     if(!stmt) { return; }
     if(sqlite3_finalize(stmt)!=SQLITE_OK)
         throw std::runtime_error("Finalize failed "+ std::string(db_->getLastErrorMsg()));
