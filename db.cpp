@@ -4,21 +4,30 @@
 
 using namespace Engine;
 
+/*
+ * Class: LRUCache
+ * LRU cache for sqlite3_stmt* statements
+ */
+LRUCache::LRUCache(size_t capacity) : capacity(capacity), head(nullptr), tail(nullptr) {
+    if(capacity>1000){
+        throw CacheLimitError("Max cache capacity is 1000, got "+ std::to_string(capacity)+"instead.", ENGINE_ERROR);
+    }
+}
+
+// removes a node from the list. 
+// doesn't finalize or delete from map.
 void LRUCache::removeNode(Node* n) {
     if(!n) return;
     if(n->prev)
         n->prev->next = n->next;
     else
-        head = n->next;
-    
+        head = n->next; 
     if(n->next)
         n->next->prev = n->prev;
     else
         tail = n->prev;
-
-    n->prev = nullptr;
-    n->next = nullptr;
 }
+//helper to move cache to MRU
 void LRUCache::pushFront(Node* n) {
     n->prev = nullptr;
     n->next = head;
@@ -27,51 +36,106 @@ void LRUCache::pushFront(Node* n) {
     head=n;
     if(!tail)
         tail=n;
-}
+} 
+// Unlink a node from the list, then move it to MRU
 void LRUCache::moveToFront(Node* n) {
-    if(n == head) return;
     removeNode(n);
     pushFront(n);
 }
-PreparedStatement* LRUCache::get(const std::string& key) {
-    auto it = map.find(key);
-    if(it == map.end())
-        return nullptr;
+int LRUCache::get(const std::string& key, sqlite3_stmt* &stmt) {
+    // stmt is OUT param
+    // not found
+    if(map.find(key) == map.end()) {
+        Logger::info("[Cache]: Cache not found");
+        return CACHE_NOT_FOUND;
+    }
 
+    auto it = map.find(key);
+
+    //if found but is in use inform caller that cache is  busy 
     Node* n = it->second;
-    n->value->reset();
+    if(n->inUse){
+        Logger::info("[Cache]: Cache busy");
+        return CACHE_BUSY;
+    }
+    //set cache state to in use, move to MRU, set stmt, return ok
+    n->inUse = true;
     moveToFront(n);
-    return n->value;
+    stmt = n->value;
+    sqlite3_reset(stmt);
+    sqlite3_clear_bindings(stmt);
+    Logger::info("[Cache]: Retrieved from cache");
+    return CACHE_OK;
 }
-void LRUCache::put(const std::string& key, PreparedStatement* value) {
+//finalize and delete a cache entry
+int LRUCache::evict() {
+    while(map.size() >= capacity){
+        Node* n = tail;
+        while(n && n->inUse) {
+            n = n->prev;
+        }
+        if(!n)
+            return CACHE_FULL;
+        // free memory
+        map.erase(n->key);
+        // unlink
+        removeNode(n);
+        //finalize
+        sqlite3_finalize(n->value);
+        // remove from map
+        delete(n);
+    }
+    Logger::info("[Cache]: Evicted cache entry");
+    return CACHE_OK;
+}
+
+int LRUCache::put(const std::string& key, sqlite3_stmt* value) {
     auto it = map.find(key);
     if(it != map.end()) {
-        Node* n = it->second;
-        n->value = value;
-        moveToFront(n);
-        return;
+        Logger::warn("[Cache]: Attempted duplicate cache entry, key already exists.");
+        return CACHE_DUPLICATE;
     }
-
-    Node* n = new Node{key, value, nullptr, nullptr};
+    if(map.size() >= capacity) {
+        int rc = evict();
+        if(rc == CACHE_FULL) {
+            Logger::info("[Cache]: Cache at max limit, all entries are in use.");
+            return rc;
+        }
+    } 
+    Node* n = new Node{key, value, nullptr, nullptr, false};
     pushFront(n);
     map[key] = n;
-
-    if (map.size() > capacity) {
-        Node* old = tail;
-        removeNode(old);
-        map.erase(old->key);
-        delete old;
-    }
-}
-//finalize and free cache
-void LRUCache::clearCache() {
-    for (const auto& it : map) {
-        Node* n = it.second;
-        n->value->finalize();
-        delete n;
-    }
+    Logger::info("[Cache]: Added to cache");
+    return CACHE_OK;
 }
 
+void LRUCache::release(const std::string& key) {
+        Node* n = map[key];
+        n->inUse = false;
+        moveToFront(n);
+        Logger::info("[Cache]: Releasing cache");
+}
+
+void LRUCache::clearAll() {
+    Node* cache = head;
+    while(cache) {
+        Node* next = cache->next;
+        if(cache->value)
+            sqlite3_finalize(cache->value);
+        delete cache;
+        cache = next;
+    }
+    head = tail = nullptr;
+    map.clear();
+    Logger::info("[Cache]: Cleared statement cache");
+}
+// end of Class: LRUCache
+
+
+
+/*
+ * Class: DBEngine
+ */
 // This engine does not support multithreading
 DBEngine::DBEngine(const std::string& dbPath, bool debug, size_t cacheSize) {
     
@@ -89,41 +153,66 @@ DBEngine::DBEngine(const std::string& dbPath, bool debug, size_t cacheSize) {
     Logger::info("[DB]: Initialized statement cache");
 }
 DBEngine::~DBEngine(){
-    
-    if(stmtCache) {
-        Logger::info("[DB]: Clearing statement cache");
-        stmtCache->clearCache();
-        delete stmtCache;
-        stmtCache = nullptr;
-        Logger::info("[DB]: Cleared statement cache");
-    }
     if(db){ 
         sqlite3_close(db);
         db=nullptr;
         Logger::info("[DB]: Closed DB successfully");
     }
+    if(stmtCache) {
+        //TODO: free cache memory
+        stmtCache = nullptr;
+        Logger::info("[DB]: Cleared statement cache");
+    }
 }
+
+
 
 /**
  * Executes a SQL statement
- * 
  * @param sql The sql query string
- * @return true if execution succeeds, false otherwise.
- *
+ * @return ok if execution succeeds, error otherwise.
  */
 //execute
-bool DBEngine::execute(const std::string& sql, const std::string& msg) {
+int DBEngine::execute(const std::string& sql, const std::string& msg) {
     std::lock_guard<std::mutex> lock(mtx);
     char* errMsg = nullptr;
     if (sqlite3_exec(db, sql.c_str(), nullptr, nullptr, &errMsg) != SQLITE_OK) {
         Logger::error(std::string("[DB]: Failed to execute query: ") + msg + ": " + errMsg);
         sqlite3_free(errMsg);
-        return false;
+        return ENGINE_ERROR;
     }
 
     Logger::info("[DB] OK: "+ msg);
-    return true;
+    return ENGINE_OK;
 }
+
+
+/*
+ * Prepares a sqlite3_stmt
+ * @params: &sql, &stmtOut
+ * returns int
+ */
+
+int DBEngine::prepare(const std::string &sql, sqlite3_stmt* &stmt) {
+    sqlite3_stmt* _stmt = nullptr;
+    int rc = sqlite3_prepare_v2(db, sql.c_str(), -1, &_stmt, nullptr);
+    if(rc != SQLITE_OK) {
+        _stmt = nullptr;
+        if(rc == SQLITE_ERROR) {
+            std::string msg = getLastErrorMsg();
+            Logger::info("[DB]: SQL syntax error: "+msg);
+            return ENGINE_SYNTAX_ERROR;
+        }
+        else {
+            Logger::info("[DB]: Failed to prepare statement");
+            return ENGINE_ERROR;
+        }
+    } 
+    Logger::info("[DB]: Prepare statement success");
+    stmt = _stmt;    // gibst den stmt zuruck
+    return ENGINE_OK;   // success
+}
+
 //'begin' a transaction
 // the engine allows only one transaction at a time per connection
 int DBEngine::begin() {
@@ -179,73 +268,60 @@ const char* DBEngine::getLastErrorMsg() {
 sqlite3* DBEngine::get() {
     return db;
 }
+// end of Class: DBEngine
 
-void DBEngine::addToCache(const std::string& key, PreparedStatement* value) {
-    stmtCache->put(key, value);
-}
-PreparedStatement* DBEngine::getFromCached(const std::string& key) {
-    return stmtCache->get(key);
-}
 
-/**
- * Initiate a transaction
- * automatically rollback when it goes out of scope
- * 
- * Example:
- * Transaction t;   
- * Execute statements;
- * t.commit()                // commit changes, automatically rollback otherwise
- * 
+
+
+
+/*
+ * Class: Transaction
+ *
  */
 Transaction::Transaction(DBEngine* dbEngine) : db(dbEngine) {
-    db->begin();            // DBEngine handles the actual BEGIN
+    db->begin();           // db initiates a transaction 
 }
 Transaction::~Transaction() {
     if(!committed) {
-        db->rollback();     //DBEngine handles the actual ROLLBACK
+        db->rollback();    // db rollbacks the transaction
     }
 }
 int Transaction::getTransactionState() {
     return state;
 };
 void Transaction::commit() {
-    db->commit();           // DBEngine handles the actual COMMIT
-    committed = true;       // mark as committed so destructor won't rollback
+    db->commit();           // db commits changes
+    committed = true;       
 }
-//TODO: Implement none, active, committing, rollingback states for Transactions
+// end of Class: Transaction
+
+
+
 
 
 /* 
  * Class: PreparedStatement
  *
+ * Note: A stmt borrowed from cache should never be finalized by wrapper
+ * 
  */
 PreparedStatement::PreparedStatement(DBEngine* db, const std::string& sql):db_(db) {
     
-    if(!db->getFromCached(sql)){
-        Logger::info("Preparing statement");
-        int rc=sqlite3_prepare_v2(db->get(), sql.c_str(), -1, &stmt, nullptr); 
-        if(rc != SQLITE_OK) {
-            stmt = nullptr;
-            if(rc == SQLITE_ERROR)
-            {
-                std::string msg = db_->getLastErrorMsg();
-                throw SyntaxError("SQL Error during execution: "+ msg, rc);
-            }
-            else {
-                std::string msg = db->getLastErrorMsg();
-                throw std::runtime_error("Unexpected exception occurred: "+msg);
-            }
+    Logger::info("Preparing statement");
+    int rc=db->prepare(sql, stmt); 
+    if(rc != ENGINE_OK) {
+        stmt = nullptr;
+        if(rc == ENGINE_SYNTAX_ERROR)
+        {
+            std::string msg = db_->getLastErrorMsg();
+            throw SyntaxError("SQL Error during execution: "+ msg, rc);
         }
-        Logger::info("Adding statement to cache");
-        db->addToCache(sql, this);
-    }
-    else {
-        Logger::info("Getting statement cache");
-        stmt = db->getFromCached(sql)->get();
-        //clear bindings
-        sqlite3_clear_bindings(stmt);
-    }
-
+        else {
+            std::string msg = db->getLastErrorMsg();
+            throw std::runtime_error("Unexpected exception occurred: "+msg);
+        }
+    }    
+        
     prepared=true;
     Logger::info("Statement prepared");    
 }
@@ -276,15 +352,19 @@ int PreparedStatement::step() {
     int rc=sqlite3_step(stmt);
     if(rc==SQLITE_CONSTRAINT) {
         reset(); // statement is reset after exception because calling finalize after an invalid step() throws
-        throw ConstraintError("Database constraint violated: ", rc); //TODO: should add database error message?
+        throw ConstraintError("Database constraint violated: ", rc); 
+    }
+    if(rc = SQLITE_MISUSE){
+        reset();
+        throw std::runtime_error("Statement has unbound parameters");
     }
     if(rc==SQLITE_ERROR) {
         reset();
         throw SyntaxError("SQL Error during execution: ", rc);
     }
     if(rc==SQLITE_MISMATCH) {
-        reset(); //TODO: fix err message
-        throw std::runtime_error("Datatype mismatch on column binding ");
+        reset(); 
+        throw DatatypeMismatchError("Datatype mismatch on column binding ", rc);
     }
     if(rc == SQLITE_ROW) {
         return ENGINE_ROW;
@@ -305,7 +385,6 @@ void PreparedStatement::reset() {
 }
 //finalize a prepared stmt
 void PreparedStatement::finalize() {
-    if(isFinalized()) { return; }
     if(!stmt) { return; }
     if(sqlite3_finalize(stmt)!=SQLITE_OK)
         throw std::runtime_error("Finalize failed "+ std::string(db_->getLastErrorMsg()));
@@ -417,16 +496,7 @@ sqlite3_stmt* PreparedStatement::get() {
     return stmt;
 }
 
-
-//TODO: implement LRU cache for prepared statements, customizable max 16
-/*
- * The LRU statement cache will hold mappings from sql text to sqlite3_stmt. When you prepare(), check if statement exists in cache:
- *      - if yes, it must be reset() and reused
- *      - if no, create a new one and insert into cache
- *  When capacity is exceeded, evict least recently used and finalize the stmt before eviction.
- *  Tracking can be done using a linked list or an ordered map keyed by recency.
- */
-
+// TODO:
 // For statement-level profiling:
 //
 //     flags to be implemented per statement: 
@@ -435,5 +505,5 @@ sqlite3_stmt* PreparedStatement::get() {
 //
 
 
-
+// end of Class: PreparedStatement
 

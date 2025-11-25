@@ -51,6 +51,8 @@ class DBEngineTest :
 
 DBEngine* DBEngineTest::db = nullptr;
 
+//TODO: Create test suite for cache
+
 TEST(DBConstructor, Connection) {
     DBEngine db(":memory:", true);
     // If constructor crashes, test fails automatically
@@ -62,12 +64,6 @@ TEST(DBConstructor, Connection) {
     sqlite3_exec(conn, "DROP TABLE test;", 0, nullptr, nullptr);
 }
 
-/*TEST(DBLoad, Sample) {
-    DBEngine db("test.db");
-    // TODO: ADD load test here
-    EXPECT_TRUE(true);
-}
-*/
 
 TEST(DBEngineExecute, Execute) {
     DBEngine db(":memory:", true);
@@ -78,13 +74,27 @@ TEST(DBEngineExecute, Execute) {
             Relationship TEXT
             );
     )";
-    EXPECT_TRUE(db.execute(GoodSql, "Create TEST table"));
+    ASSERT_EQ(ENGINE_OK, db.execute(GoodSql, "Create TEST table"));
     
     std::string BadSql = R"(
         SELECT * FROM test where 
     )";
-    EXPECT_FALSE(db.execute(BadSql, "Select all from test table"));
+    ASSERT_EQ(ENGINE_ERROR, db.execute(BadSql, "Select all from test table"));
     db.execute("DROP TABLE test;", "Drop test table");
+}
+
+TEST_F(DBEngineTest, Sqlite3PreparedStatementTest) {
+    std::string query = "INSERT INTO test (id, Name) VALUES(?, ?);";
+    sqlite3_stmt* stmt = nullptr;
+    int rc = db->prepare(query, stmt);
+    ASSERT_EQ(rc, ENGINE_OK);
+    sqlite3_finalize(stmt);
+    stmt = nullptr;
+    query = "INSRT INTO test VALUES(?, ?, ?);";
+    rc = db->prepare(query, stmt);
+    ASSERT_EQ(rc, ENGINE_SYNTAX_ERROR);
+    sqlite3_finalize(stmt);
+    stmt = nullptr;
 }
 
 TEST_F(DBEngineTest, BeginShouldStartTransaction) {
@@ -141,8 +151,286 @@ TEST_F(DBEngineTest, ShouldCommitTransaction) {
 }
 
 /*
- * Prepared Statement tests
+ * Cache Tests
+ *
  */
+TEST_F(DBEngineTest, InitializeCacheWithValidCapacity){
+    size_t cap = 5;
+    ASSERT_NO_THROW(LRUCache cache = LRUCache(cap));
+    cap = 5000;
+    ASSERT_THROW(LRUCache cache = LRUCache(cap), CacheLimitError);
+}
+TEST_F(DBEngineTest, ShouldAddToCache) {
+    int rc;
+    size_t cap = 5;
+    LRUCache cache = LRUCache(cap);
+    sqlite3_stmt* stmt1 = nullptr;
+    sqlite3_stmt* stmt2 = nullptr;
+    sqlite3_stmt* stmt3 = nullptr;
+    std::string query1 = "SELECT id FROM test;";
+    std::string query2 = "SELECT name FROM test;";
+    std::string query3 = "INSERT INTO test (Name) VALUES(?);";
+    db->prepare(query1, stmt1);
+    db->prepare(query2, stmt2);
+    db->prepare(query3, stmt3);
+    rc = cache.put(query1, stmt1);
+    ASSERT_EQ(rc, CACHE_OK);
+    rc = cache.put(query2, stmt2);
+    ASSERT_EQ(rc, CACHE_OK);
+    rc = cache.put(query3, stmt3);
+    ASSERT_EQ(rc, CACHE_OK);
+    sqlite3_finalize(stmt1);
+    sqlite3_finalize(stmt2);
+    sqlite3_finalize(stmt3);
+}
+TEST_F(DBEngineTest, TestDuplicateEntry) {
+    int rc;
+    size_t cap = 5;
+    LRUCache cache = LRUCache(cap);
+    sqlite3_stmt* stmt1 = nullptr;
+    sqlite3_stmt* stmt2 = nullptr;
+    std::string query1 = "SELECT id FROM test;";
+    db->prepare(query1, stmt1);
+    db->prepare(query1, stmt2);
+    cache.put(query1, stmt1);
+    rc = cache.put(query1, stmt2);
+    ASSERT_EQ(rc, CACHE_DUPLICATE);
+    sqlite3_finalize(stmt1);
+    sqlite3_finalize(stmt2);
+
+}
+
+TEST_F(DBEngineTest, ReleaseShouldUpdateStatus) {
+    int rc;
+    size_t cap = 5;
+    LRUCache cache = LRUCache(cap);
+    sqlite3_stmt* stmt1 = nullptr; 
+    sqlite3_stmt* cache1 = nullptr;
+    sqlite3_stmt* cache2 = nullptr;
+    std::string query1 = "INSERT INTO test (id, name) VALUES(?, ?);";
+    db->prepare(query1, stmt1);
+    cache.put(query1, stmt1);
+    stmt1 = nullptr;
+    rc = cache.get(query1, cache1);
+    ASSERT_EQ(rc, CACHE_OK);
+    rc = cache.get(query1, cache2);
+    ASSERT_EQ(rc, CACHE_BUSY);
+    
+    cache1 = nullptr;
+    cache.release(query1);
+    
+    rc = cache.get(query1, cache2);
+    ASSERT_EQ(rc, CACHE_OK);
+    
+    cache2 = nullptr;
+    cache.clearAll();
+}
+
+TEST_F(DBEngineTest, ShouldGetFromCache) {
+    int rc;
+    size_t cap = 5;
+    LRUCache cache = LRUCache(cap);
+    sqlite3_stmt* stmt1 = nullptr; 
+    sqlite3_stmt* stmt2 = nullptr; 
+    sqlite3_stmt* stmt3 = nullptr;
+    std::string query1 = "INSERT INTO test (id, name) VALUES(?, ?);";
+    std::string query2 = "SELECT name from test;";
+    std::string query3 = "SELECT * from test;";
+    db->prepare(query1, stmt1);
+    db->prepare(query2, stmt2);
+    db->prepare(query3, stmt3);
+    rc=cache.put(query1, stmt1);
+    ASSERT_EQ(rc, CACHE_OK);
+    rc = cache.put(query2, stmt2);
+    ASSERT_EQ(rc, CACHE_OK);   
+    rc = cache.put(query3, stmt3);
+    ASSERT_EQ(rc, CACHE_OK);
+    std::string newQuery = "SELECT id FROM test;";
+    sqlite3_stmt* cache1 = nullptr;
+    sqlite3_stmt* cache2 = nullptr;
+    sqlite3_stmt* cache3 = nullptr;
+    sqlite3_stmt* cache4 = nullptr;
+    rc = cache.get(query1, cache1);
+    ASSERT_EQ(rc, CACHE_OK);
+    // test when a cache is retrieved, status is set to busy and cannot be used
+    rc = cache.get(query1, cache2);
+    ASSERT_EQ(rc, CACHE_BUSY);
+    ASSERT_EQ(cache2, nullptr);
+    rc = cache.get(newQuery, cache2);
+    ASSERT_EQ(rc, CACHE_NOT_FOUND);
+    ASSERT_EQ(cache2, nullptr);
+    rc = cache.get(query2, cache2);
+    ASSERT_EQ(rc, CACHE_OK);
+    rc = cache.get(query3, cache3);
+    ASSERT_EQ(rc, CACHE_OK);
+    cache.release(query3);
+    cache3 = nullptr;
+    rc = cache.get(query3, cache4);
+    ASSERT_EQ(rc, CACHE_OK);
+    cache1 = cache2 = cache3 = cache4 = nullptr;
+    sqlite3_finalize(stmt1);
+    sqlite3_finalize(stmt2);
+    sqlite3_finalize(stmt3);
+}
+
+TEST_F(DBEngineTest, ShouldResetAndClearAllBindings){
+    int rc;
+    size_t cap = 5;
+    LRUCache cache = LRUCache(cap);
+    sqlite3_stmt* stmt1 = nullptr; 
+    sqlite3_stmt* cache1 = nullptr;
+    sqlite3_stmt* cache2 = nullptr;
+    std::string query1 = "INSERT INTO test (id, name) VALUES(?, ?);";
+    db->prepare(query1, stmt1);
+    rc = cache.put(query1, stmt1);
+    rc = cache.get(query1, cache1);
+    ASSERT_EQ(rc, CACHE_OK);
+    sqlite3_bind_int(cache1, 1, 1);
+    sqlite3_bind_text(cache1, 2, "bob", -1, SQLITE_TRANSIENT); 
+    rc=sqlite3_step(cache1);
+    ASSERT_EQ(rc, SQLITE_DONE);
+    cache.release(query1);
+    cache1 = nullptr;
+    rc = cache.get(query1, cache2);
+    ASSERT_EQ(rc, CACHE_OK);
+    rc = sqlite3_step(cache2);
+    // should return code 19 when inserting NULL (empty binds) into field Name with NOT NULL constraint
+    ASSERT_EQ(rc, SQLITE_CONSTRAINT);
+    //reset after stepping, bind values
+    sqlite3_reset(cache2);
+    sqlite3_bind_int(cache2, 1, 2);
+    sqlite3_bind_text(cache2, 2, "bob2", -1, SQLITE_TRANSIENT); 
+    rc = sqlite3_step(cache2);
+    ASSERT_EQ(rc, SQLITE_DONE);
+    // manual reset with empty binds should return code 19 SQLITE_CONSTRAINT
+    sqlite3_reset(cache2);
+    sqlite3_clear_bindings(cache2);
+    rc = sqlite3_step(cache2);
+    ASSERT_EQ(rc, SQLITE_CONSTRAINT);
+    sqlite3_reset(cache2);
+    cache.release(query1);
+    cache2 = nullptr;
+    sqlite3_finalize(stmt1);
+}
+
+TEST_F(DBEngineTest, TestBehavoirWhenAtMaxCapacity) {
+    int rc;
+    size_t cap = 3;
+    LRUCache cache = LRUCache(cap);
+    sqlite3_stmt* stmt1 = nullptr; 
+    sqlite3_stmt* stmt2 = nullptr;
+    sqlite3_stmt* stmt3 = nullptr;
+    sqlite3_stmt* stmt4 = nullptr;
+    sqlite3_stmt* cache1 = nullptr;
+    sqlite3_stmt* cache2 = nullptr;
+    sqlite3_stmt* cache3 = nullptr;
+    std::string query1 = "INSERT INTO test (id, name) VALUES(?, ?);";
+    std::string query2 = "SELECT * FROM test;";
+    std::string query3 = "SELECT id FROM test;";
+    std::string query4 = "SELECT name FROM test;";
+    
+    db->prepare(query1, stmt1);
+    db->prepare(query2, stmt2);
+    db->prepare(query3, stmt3);
+    db->prepare(query4, stmt4);
+
+    cache.put(query1, stmt1);
+    cache.put(query2, stmt2);
+    cache.put(query3, stmt3);
+    
+    // test when cache is at max capacity and all entries are free
+    // should remove query1 (LRU)
+    rc = cache.put(query4, stmt4);
+    ASSERT_EQ(rc, CACHE_OK);
+    // confirm query1 is evicted
+    rc = cache.get(query1, cache1);
+    ASSERT_EQ(rc, CACHE_NOT_FOUND);
+    ASSERT_EQ(cache1, nullptr);
+    rc = cache.get(query4, cache1);
+    ASSERT_EQ(rc, CACHE_OK);
+
+    // since stmt1 is now finalized since it was evicted, prepare stmt1 again
+    stmt1 = nullptr;
+    db->prepare(query1, stmt1);
+    // test when some entries are busy
+    // query4, query3 are in use, should remove query2
+    rc = cache.get(query3, cache2);
+    ASSERT_EQ(rc, CACHE_OK);
+    rc = cache.put(query1, stmt1);
+    ASSERT_EQ(rc, CACHE_OK);
+    rc = cache.get(query1, cache3);
+    ASSERT_EQ(rc, CACHE_OK);
+    cache.release(query1);
+    cache3 = nullptr;
+    rc = cache.get(query2, cache3);
+    ASSERT_EQ(rc, CACHE_NOT_FOUND);
+    ASSERT_EQ(cache3, nullptr);
+    
+    // since stmt2 is now finalized since it was evicted, prepare stmt2 again
+    stmt2 = nullptr;
+    db->prepare(query2, stmt2);
+    
+    // test when all entries are busy and cache is at max capacity
+    rc = cache.get(query1, cache3);
+    ASSERT_EQ(rc, CACHE_OK);
+    //try adding query2 again
+    rc = cache.put(query2, stmt2);
+    ASSERT_EQ(rc, CACHE_FULL);
+    cache1 = nullptr;
+    cache2 = nullptr;
+    cache3 = nullptr;
+    sqlite3_finalize(stmt1);
+    sqlite3_finalize(stmt2);
+    sqlite3_finalize(stmt3);
+    sqlite3_finalize(stmt4);
+    
+}
+
+TEST_F(DBEngineTest, ShouldFinalizeAndClearAll) {
+    int rc;
+    size_t cap = 5;
+    LRUCache cache = LRUCache(cap);
+    sqlite3_stmt* stmt1 = nullptr; 
+    sqlite3_stmt* stmt2 = nullptr;
+    sqlite3_stmt* stmt3 = nullptr;
+    sqlite3_stmt* stmt4 = nullptr;
+    sqlite3_stmt* stmt5 = nullptr;
+    std::string query1 = "INSERT INTO test (id, name) VALUES(?, ?);";
+    std::string query2 = "INSERT INTO test (name) VALUES(?);";
+    std::string query3 = "SELECT * FROM test;";
+    std::string query4 = "SELECT name FROM test WHERE id = ?;";
+    std::string query5 = "SELECT * FROM test WHERE name = ?;";
+
+    db->prepare(query1, stmt1);
+    db->prepare(query2, stmt2);
+    db->prepare(query3, stmt3);
+    db->prepare(query4, stmt4);
+    db->prepare(query5, stmt5);
+
+    rc = cache.put(query1, stmt1);
+    ASSERT_EQ(rc, CACHE_OK);
+    rc = cache.put(query2, stmt2);
+    ASSERT_EQ(rc, CACHE_OK);
+    rc = cache.put(query3, stmt3);
+    ASSERT_EQ(rc, CACHE_OK);
+    rc = cache.put(query4, stmt4);
+    ASSERT_EQ(rc, CACHE_OK);
+    rc = cache.put(query5, stmt5);
+    ASSERT_EQ(rc, CACHE_OK);
+    
+    cache.clearAll();
+    
+    //should allow insert of query1
+    stmt1 = nullptr;
+    db->prepare(query1, stmt1);
+    rc = cache.put(query1, stmt1);
+    ASSERT_EQ(rc, CACHE_OK);
+    cache.clearAll();
+}
+
+/*
+ * Prepared Statement tests
+ *
 TEST_F(DBEngineTest, PreparedStatementBasicFunctionality) {
     PreparedStatement insert(db->get(), "INSERT INTO test VALUES(?, ?);");
     ASSERT_NO_THROW(insert.bind(1, 1));
@@ -195,7 +483,7 @@ TEST_F(DBEngineTest, ShouldThrowWhenBindWithoutReset) {
     ASSERT_NO_THROW(insert.bind(2, "bob2"));
     ASSERT_NO_THROW(insert.step());
 }
-
+*/
 /* Statement cache tests
  *
  */

@@ -1,4 +1,3 @@
-#pragma once
 #ifndef APP_H
 #define APP_H
 #include "db.hpp"
@@ -8,7 +7,6 @@
 #include <common.hpp>
 #include <memory>
 
-using namespace Engine;
 namespace App {
 
     enum class GiftStatus{
@@ -19,8 +17,10 @@ namespace App {
     };
 
     struct User {
-        std::string budget;
-        std::string total_spent;
+        int id = 0;
+        std::string name;
+        double budget = 0.0;
+        double total_spent =0.0;
     };
    
     struct Recipient {
@@ -33,10 +33,10 @@ namespace App {
     struct Gift {
         int id = 0;
         int recipientId = 0;
-        int eventID=0;
+        int eventId=0;
         std::string name;
         std::string link;
-        double price = 0.0;
+        double price;
         GiftStatus status = GiftStatus::IDEA;
     };
 
@@ -47,15 +47,17 @@ namespace App {
         std::string recipientRelationship;
         std::string giftName;
         std::string giftLink;
-        std::string recipientBudget;
-        std::string giftPrice;
-        std::string giftStatus;
+        double recipientBudget;
+        double giftPrice;
+        GiftStatus giftStatus;
+        std::string eventName;
+        std::string eventDate;
     };
 
     struct Event {
-        int eventId;
-        std::string event_name;
-        std::string event_date;
+        int eventId=0;
+        std::string eventName;
+        std::string eventDate;
     };
 
     class GiftPlanner {
@@ -67,16 +69,22 @@ namespace App {
 
             void addRecipient(Recipient recipient);
             void addGift(Gift gift);
+            void addEvent(Event event);
             void markGiftAsPurchased(int giftId);
-            std::vector<RecipientGifts> fetchUsersAndGifts(int limit=-1, int offset=-1, const std::string& order="");
+            std::vector<RecipientGifts> fetchRecipientsAndGifts(int limit=-1, int offset=-1);
             int getEventCount();
             int getRecipientCount();
             int getGiftCount();
             int totalGiftsPurchased();
             int totalMoneySpent();
+            bool setupComplete();
+            void setup(User user);
+            User getUserData();
+            std::vector<Event>getEvents();
+            std::vector<Recipient> getRecipients();
             
         private:
-            DBEngine* db;
+            Engine::DBEngine* db;
     };
 
 }
