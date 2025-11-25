@@ -421,6 +421,7 @@ TEST_F(DBEngineTest, ShouldFinalizeAndClearAll) {
     sqlite3_stmt* stmt3 = nullptr;
     sqlite3_stmt* stmt4 = nullptr;
     sqlite3_stmt* stmt5 = nullptr;
+    sqlite3_stmt* cache1 = nullptr;
     std::string query1 = "INSERT INTO test (id, name) VALUES(?, ?);";
     std::string query2 = "INSERT INTO test (name) VALUES(?);";
     std::string query3 = "SELECT * FROM test;";
@@ -443,7 +444,16 @@ TEST_F(DBEngineTest, ShouldFinalizeAndClearAll) {
     ASSERT_EQ(rc, CACHE_OK);
     rc = cache.put(query5, stmt5);
     ASSERT_EQ(rc, CACHE_OK);
+
+    rc = cache.get(query5, cache1);
+    ASSERT_EQ(rc, CACHE_OK);
     
+    rc = cache.clearAll();
+    ASSERT_EQ(rc, CACHE_BUSY);
+    
+    rc = cache.release(cache1);
+    ASSERT_EQ(rc, CACHE_OK);
+
     rc = cache.clearAll();
     ASSERT_EQ(rc, CACHE_OK);
 

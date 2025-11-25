@@ -129,6 +129,7 @@ int LRUCache::clearAll() {
     while(cache) {
         Node* next = cache->next;
         if(cache->inUse){
+            Logger::warn("[Cache]: Failed to clear statement cache. Cache still in use by another operation.");
             return CACHE_BUSY;
         }
         if(cache->value)
