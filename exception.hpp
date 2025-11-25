@@ -42,4 +42,13 @@ namespace Engine {
     class StatementStateError : public DatabaseException {
         using DatabaseException::DatabaseException;
     };
+    //Thrown when cache capacity is invalid
+    class CacheLimitError : public DatabaseException {
+        using DatabaseException::DatabaseException;
+    };
+    // Thrown when datatype mismatch occurs during SQL execution
+    class DatatypeMismatchError : public DatabaseException {
+        using DatabaseException::DatabaseException;
+    };
+
 }

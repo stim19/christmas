@@ -33,28 +33,44 @@ enum ENGINE_CODES {
     ENGINE_BIND_ERROR,
     ENGINE_ROW,
     ENGINE_FINALIZE_ERROR,
-    ENGINE_BUSY
+    ENGINE_BUSY,
+    ENGINE_CACHE_OK,
+    ENGINE_CACHE_BUSY,
+    ENGINE_CACHE_NOT_FOUND
 };
 
+enum CACHE_RESULT {
+    CACHE_OK,   // cache added or cache retrieved success
+    CACHE_BUSY, // cache present but in use
+    CACHE_FULL, // cache is at max capacity and every entry is in use
+    CACHE_NOT_FOUND, // cache not found
+    CACHE_DUPLICATE, // Duplicate entry
+    CACHE_INVALID_STATE 
+};
 class LRUCache {
     private:
         struct Node {
             std::string key;
-            PreparedStatement* value;
+            sqlite3_stmt* value;
             Node* prev;
             Node* next;
+            bool inUse;
         };
         size_t capacity;
         std::unordered_map<std::string, Node*> map;
+        std::unordered_map<sqlite3_stmt*, Node*> activeMap;
         Node* head;
         Node* tail;
-        void moveToFront(Node* n);
         void removeNode(Node* n);
         void pushFront(Node* n);
+        void moveToFront(Node* n);
+        int evict();
     public:
-        LRUCache(size_t capacity):capacity(capacity){}
-        void put(const std::string& key, PreparedStatement* stmt);
-        PreparedStatement* get(const std::string& key);
+        LRUCache(size_t capacity);
+        int put(const std::string& key, sqlite3_stmt* stmt);
+        int get(const std::string& key, sqlite3_stmt* &stmt);
+        int release(sqlite3_stmt* key);
+        int clearAll();
 };
 
 
@@ -173,17 +189,14 @@ class DBEngine {
         bool isActive() const { return active; }
         
         // Execute an arbitary SQL statement
-        bool execute(const std::string& sql, const std::string& msg); 
+        int execute(const std::string& sql, const std::string& msg); 
 
         const char* getLastErrorMsg();
-
-        PreparedStatement* getFromCached(const std::string& key);
-        void addToCache(const std::string& key, PreparedStatement* value);
-         
-
+        
+        int prepare(const std::string& sql, sqlite3_stmt* &stmt);
+       
         sqlite3* get();
-        //TODO: implement query method with variants, use maps. use struct for rows and columns.
-
+        
         
         DBEngine(const DBEngine&) = delete;
         DBEngine& operator=(const DBEngine&) = delete;
@@ -191,9 +204,6 @@ class DBEngine {
         DBEngine& operator=(DBEngine&&) = default;
 
     private:
-        //TODO: Use Pointer to IMPLementation to hide implementation details like sqlite3* from DB interface
-        //struct Impl;                                            // forward declaration
-        //std::unique_ptr<Impl> pImpl; 
         sqlite3* db = nullptr;
         bool active = false;                            // track active transactions
         std::mutex mtx;
@@ -255,9 +265,6 @@ class Transaction {
  *   stmt.step();
  *  }
  */
-
-
-
 class PreparedStatement {
     public:
         PreparedStatement(DBEngine* db, const std::string& sql);
@@ -300,6 +307,7 @@ class PreparedStatement {
         sqlite3_stmt* stmt;
         bool finalized = false;
         bool prepared;
+        bool isCached;
         //TODO: implement proper state enums
         bool isReset=true;
 };
