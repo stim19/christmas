@@ -208,7 +208,11 @@ TEST_F(DBEngineTest, ReleaseShouldUpdateStatus) {
     sqlite3_stmt* cache1 = nullptr;
     sqlite3_stmt* cache2 = nullptr;
     std::string query1 = "INSERT INTO test (id, name) VALUES(?, ?);";
+
+    std::string query2 ="SELECT * FROM test;";
+    sqlite3_stmt* invalidKey = nullptr;
     db->prepare(query1, stmt1);
+    db->prepare(query2, invalidKey);
     cache.put(query1, stmt1);
     stmt1 = nullptr;
     rc = cache.get(query1, cache1);
@@ -216,14 +220,20 @@ TEST_F(DBEngineTest, ReleaseShouldUpdateStatus) {
     rc = cache.get(query1, cache2);
     ASSERT_EQ(rc, CACHE_BUSY);
     
-    cache1 = nullptr;
-    cache.release(query1);
     
+    rc = cache.release(cache1);
+    ASSERT_EQ(rc, CACHE_OK);
+    rc = cache.release(invalidKey);
+    ASSERT_EQ(rc, CACHE_NOT_FOUND);
+    
+
     rc = cache.get(query1, cache2);
     ASSERT_EQ(rc, CACHE_OK);
-    
+    rc = cache.release(cache2);
+    ASSERT_EQ(rc, CACHE_OK);
     cache2 = nullptr;
-    cache.clearAll();
+    rc = cache.clearAll();
+    ASSERT_EQ(rc, CACHE_OK);
 }
 
 TEST_F(DBEngineTest, ShouldGetFromCache) {
@@ -263,9 +273,16 @@ TEST_F(DBEngineTest, ShouldGetFromCache) {
     ASSERT_EQ(rc, CACHE_OK);
     rc = cache.get(query3, cache3);
     ASSERT_EQ(rc, CACHE_OK);
-    cache.release(query3);
+    rc = cache.release(cache3);
+    ASSERT_EQ(rc, CACHE_OK);
     cache3 = nullptr;
     rc = cache.get(query3, cache4);
+    ASSERT_EQ(rc, CACHE_OK);
+    rc = cache.release(cache2);
+    ASSERT_EQ(rc, CACHE_OK);
+    rc = cache.release(cache4);
+    ASSERT_EQ(rc, CACHE_OK);
+    rc = cache.release(cache1);
     ASSERT_EQ(rc, CACHE_OK);
     cache1 = cache2 = cache3 = cache4 = nullptr;
     sqlite3_finalize(stmt1);
@@ -289,7 +306,8 @@ TEST_F(DBEngineTest, ShouldResetAndClearAllBindings){
     sqlite3_bind_text(cache1, 2, "bob", -1, SQLITE_TRANSIENT); 
     rc=sqlite3_step(cache1);
     ASSERT_EQ(rc, SQLITE_DONE);
-    cache.release(query1);
+    rc = cache.release(cache1);
+    ASSERT_EQ(rc, CACHE_OK);
     cache1 = nullptr;
     rc = cache.get(query1, cache2);
     ASSERT_EQ(rc, CACHE_OK);
@@ -308,7 +326,8 @@ TEST_F(DBEngineTest, ShouldResetAndClearAllBindings){
     rc = sqlite3_step(cache2);
     ASSERT_EQ(rc, SQLITE_CONSTRAINT);
     sqlite3_reset(cache2);
-    cache.release(query1);
+    rc = cache.release(cache2);
+    ASSERT_EQ(rc, CACHE_OK);
     cache2 = nullptr;
     sqlite3_finalize(stmt1);
 }
@@ -360,7 +379,8 @@ TEST_F(DBEngineTest, TestBehavoirWhenAtMaxCapacity) {
     ASSERT_EQ(rc, CACHE_OK);
     rc = cache.get(query1, cache3);
     ASSERT_EQ(rc, CACHE_OK);
-    cache.release(query1);
+    rc = cache.release(cache3);
+    ASSERT_EQ(rc, CACHE_OK);
     cache3 = nullptr;
     rc = cache.get(query2, cache3);
     ASSERT_EQ(rc, CACHE_NOT_FOUND);
@@ -376,6 +396,12 @@ TEST_F(DBEngineTest, TestBehavoirWhenAtMaxCapacity) {
     //try adding query2 again
     rc = cache.put(query2, stmt2);
     ASSERT_EQ(rc, CACHE_FULL);
+    rc = cache.release(cache3);
+    ASSERT_EQ(rc, CACHE_OK);
+    rc = cache.release(cache1);
+    ASSERT_EQ(rc, CACHE_OK);
+    rc = cache.release(cache2);
+    ASSERT_EQ(rc, CACHE_OK);
     cache1 = nullptr;
     cache2 = nullptr;
     cache3 = nullptr;
@@ -418,14 +444,16 @@ TEST_F(DBEngineTest, ShouldFinalizeAndClearAll) {
     rc = cache.put(query5, stmt5);
     ASSERT_EQ(rc, CACHE_OK);
     
-    cache.clearAll();
-    
+    rc = cache.clearAll();
+    ASSERT_EQ(rc, CACHE_OK);
+
     //should allow insert of query1
     stmt1 = nullptr;
     db->prepare(query1, stmt1);
     rc = cache.put(query1, stmt1);
     ASSERT_EQ(rc, CACHE_OK);
-    cache.clearAll();
+    rc = cache.clearAll();
+    ASSERT_EQ(rc, CACHE_OK);
 }
 
 /*

@@ -64,6 +64,7 @@ int LRUCache::get(const std::string& key, sqlite3_stmt* &stmt) {
     stmt = n->value;
     sqlite3_reset(stmt);
     sqlite3_clear_bindings(stmt);
+    activeMap[stmt] = n;
     Logger::info("[Cache]: Retrieved from cache");
     return CACHE_OK;
 }
@@ -109,17 +110,27 @@ int LRUCache::put(const std::string& key, sqlite3_stmt* value) {
     return CACHE_OK;
 }
 
-void LRUCache::release(const std::string& key) {
-        Node* n = map[key];
+int LRUCache::release(sqlite3_stmt* key) {
+        if(activeMap.find(key)==activeMap.end()){
+            return CACHE_NOT_FOUND;
+        }
+        Node* n = activeMap[key];
+        if(!n->inUse){
+            return CACHE_INVALID_STATE;
+        }
         n->inUse = false;
         moveToFront(n);
         Logger::info("[Cache]: Releasing cache");
+        return CACHE_OK;
 }
 
-void LRUCache::clearAll() {
+int LRUCache::clearAll() {
     Node* cache = head;
     while(cache) {
         Node* next = cache->next;
+        if(cache->inUse){
+            return CACHE_BUSY;
+        }
         if(cache->value)
             sqlite3_finalize(cache->value);
         delete cache;
@@ -127,7 +138,9 @@ void LRUCache::clearAll() {
     }
     head = tail = nullptr;
     map.clear();
+    activeMap.clear();
     Logger::info("[Cache]: Cleared statement cache");
+    return CACHE_OK;
 }
 // end of Class: LRUCache
 

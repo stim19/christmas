@@ -44,7 +44,8 @@ enum CACHE_RESULT {
     CACHE_BUSY, // cache present but in use
     CACHE_FULL, // cache is at max capacity and every entry is in use
     CACHE_NOT_FOUND, // cache not found
-    CACHE_DUPLICATE // Duplicate entry
+    CACHE_DUPLICATE, // Duplicate entry
+    CACHE_INVALID_STATE 
 };
 class LRUCache {
     private:
@@ -57,6 +58,7 @@ class LRUCache {
         };
         size_t capacity;
         std::unordered_map<std::string, Node*> map;
+        std::unordered_map<sqlite3_stmt*, Node*> activeMap;
         Node* head;
         Node* tail;
         void removeNode(Node* n);
@@ -67,8 +69,8 @@ class LRUCache {
         LRUCache(size_t capacity);
         int put(const std::string& key, sqlite3_stmt* stmt);
         int get(const std::string& key, sqlite3_stmt* &stmt);
-        void release(const std::string& key);
-        void clearAll();
+        int release(sqlite3_stmt* key);
+        int clearAll();
 };
 
 
