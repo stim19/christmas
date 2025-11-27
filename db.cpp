@@ -173,7 +173,7 @@ DBEngine::~DBEngine(){
         Logger::info("[DB]: Closed DB successfully");
     }
     if(stmtCache) {
-        //TODO: free cache memory
+        stmtCache->clearAll();
         stmtCache = nullptr;
         Logger::info("[DB]: Cleared statement cache");
     }
@@ -206,7 +206,6 @@ int DBEngine::execute(const std::string& sql, const std::string& msg) {
  * @params: &sql, &stmtOut
  * returns int
  */
-
 int DBEngine::prepare(const std::string &sql, sqlite3_stmt* &stmt) {
     sqlite3_stmt* _stmt = nullptr;
     int rc = sqlite3_prepare_v2(db, sql.c_str(), -1, &_stmt, nullptr);
@@ -227,8 +226,20 @@ int DBEngine::prepare(const std::string &sql, sqlite3_stmt* &stmt) {
     return ENGINE_OK;   // success
 }
 
-//'begin' a transaction
-// the engine allows only one transaction at a time per connection
+// get from cache
+int DBEngine::getCached(const std::string& sql, sqlite3_stmt*& stmt) {
+    int rc = stmtCache->get(sql, stmt);
+    return rc;
+}
+int DBEngine::addToCache(const std::string& sql, sqlite3_stmt* stmt) {
+    return stmtCache->put(sql, stmt);
+}
+int DBEngine::releaseCached(sqlite3_stmt* stmt){
+    return stmtCache->release(stmt);
+}
+
+// Initiate a transaction
+// The engine allows only one transaction at a time per connection
 int DBEngine::begin() {
     std::lock_guard<std::mutex> lock(mtx);
     if(active)
@@ -319,23 +330,44 @@ void Transaction::commit() {
  * Note: A stmt borrowed from cache should never be finalized by wrapper
  * 
  */
-PreparedStatement::PreparedStatement(DBEngine* db, const std::string& sql):db_(db) {
+PreparedStatement::PreparedStatement(DBEngine* db, const std::string& sql):db_(db), _sql(sql) {
     
     Logger::info("Preparing statement");
-    int rc=db->prepare(sql, stmt); 
-    if(rc != ENGINE_OK) {
-        stmt = nullptr;
-        if(rc == ENGINE_SYNTAX_ERROR)
-        {
-            std::string msg = db_->getLastErrorMsg();
-            throw SyntaxError("SQL Error during execution: "+ msg, rc);
+    stmt = nullptr;
+    sqlite3_stmt* _stmt = nullptr;
+    int rc;
+    rc = db->getCached(sql, _stmt);
+    if(rc == CACHE_OK){
+        isCached = true;
+    }
+    else{
+        int tmp = rc;
+        isCached = false;
+        rc = db->prepare(sql, _stmt); 
+        if(rc != ENGINE_OK) {
+            stmt = nullptr;
+            if(rc == ENGINE_SYNTAX_ERROR)
+            {
+                std::string msg = db_->getLastErrorMsg();
+                throw SyntaxError("SQL Error during execution: "+ msg, rc);
+            }
+            else {
+                std::string msg = db->getLastErrorMsg();
+                throw std::runtime_error("Unexpected exception occurred: "+msg);
+            }
         }
-        else {
-            std::string msg = db->getLastErrorMsg();
-            throw std::runtime_error("Unexpected exception occurred: "+msg);
+        else{
+            if(tmp==CACHE_NOT_FOUND){
+                rc = db->addToCache(sql, _stmt);
+                // add to cache, should not finalize
+                if(rc == CACHE_OK){
+                    isCached = true;
+                }
+            }
         }
-    }    
-        
+    }
+    stmt = _stmt;
+    _stmt = nullptr;
     prepared=true;
     Logger::info("Statement prepared");    
 }
@@ -368,9 +400,10 @@ int PreparedStatement::step() {
         reset(); // statement is reset after exception because calling finalize after an invalid step() throws
         throw ConstraintError("Database constraint violated: ", rc); 
     }
-    if(rc = SQLITE_MISUSE){
+    if(rc == SQLITE_MISUSE){
         reset();
-        throw std::runtime_error("Statement has unbound parameters");
+        Logger::info("SQL: "+_sql);
+        throw std::runtime_error("SQLite Misuse: "+ std::string(db_->getLastErrorMsg()));
     }
     if(rc==SQLITE_ERROR) {
         reset();
@@ -400,6 +433,12 @@ void PreparedStatement::reset() {
 //finalize a prepared stmt
 void PreparedStatement::finalize() {
     if(!stmt) { return; }
+    if(isCached) {
+        db_->releaseCached(stmt);
+        stmt = nullptr;
+        Logger::info("Statement released");
+        return;
+    }
     if(sqlite3_finalize(stmt)!=SQLITE_OK)
         throw std::runtime_error("Finalize failed "+ std::string(db_->getLastErrorMsg()));
     finalized=true;
@@ -509,15 +548,6 @@ int PreparedStatement::columnType(int index) {
 sqlite3_stmt* PreparedStatement::get() {
     return stmt;
 }
-
-// TODO:
-// For statement-level profiling:
-//
-//     flags to be implemented per statement: 
-//     - "executed_in_tx"
-//     - "is_cached"
-//
-
 
 // end of Class: PreparedStatement
 

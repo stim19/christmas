@@ -194,7 +194,11 @@ class DBEngine {
         const char* getLastErrorMsg();
         
         int prepare(const std::string& sql, sqlite3_stmt* &stmt);
-       
+
+        int getCached(const std::string& sql, sqlite3_stmt*& stmt);
+        int addToCache(const std::string& sql, sqlite3_stmt* stmt);
+        int releaseCached(sqlite3_stmt* stmt);
+
         sqlite3* get();
         
         
@@ -310,6 +314,7 @@ class PreparedStatement {
         bool isCached;
         //TODO: implement proper state enums
         bool isReset=true;
+        std::string _sql;
 };
 
 
