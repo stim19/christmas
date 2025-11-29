@@ -2,6 +2,17 @@
 #include "logger.hpp"
 #include <iostream>
 
+//TODO: Expose API
+static Engine::DBEngine* Engine::Init(const std::string& path, bool debug, size_t cache) {
+    try {
+        Engine::DBEngine* db = new Engine::DBEngine(path, debug, cache);
+        return db;
+    }
+    catch(Engine::ConnectionError &e) {
+        throw std::runtime_error("Failed to connect to database");
+    }
+}
+
 using namespace Engine;
 
 /*
@@ -151,6 +162,7 @@ int LRUCache::clearAll() {
  * Class: DBEngine
  */
 // This engine does not support multithreading
+// Default statement cache size is 16
 DBEngine::DBEngine(const std::string& dbPath, bool debug, size_t cacheSize) {
     
     // enable logging
@@ -222,7 +234,7 @@ int DBEngine::prepare(const std::string &sql, sqlite3_stmt* &stmt) {
         }
     } 
     Logger::info("[DB]: Prepare statement success");
-    stmt = _stmt;    // gibst den stmt zuruck
+    stmt = _stmt;    
     return ENGINE_OK;   // success
 }
 

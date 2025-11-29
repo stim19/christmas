@@ -5,25 +5,74 @@ project(GiftPlanner)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+set(CMAKE_PREFIX_PATH "C:/msys64/mingw64")
+
+find_package(OpenGL REQUIRED)
+include_directories( ${OPENGL_INCLUDE_DIRS} )
+
+find_package(glfw3 CONFIG REQUIRED)
+
+# Add ImGui as a library
+add_library(imgui STATIC
+    imgui/imgui.cpp
+    imgui/imgui_draw.cpp
+    imgui/imgui_widgets.cpp
+    imgui/imgui_tables.cpp
+    imgui/imgui_demo.cpp
+)
+
+# Add ImGui backends
+add_library(imgui_backends STATIC
+    imgui/backends/imgui_impl_glfw.cpp
+    imgui/backends/imgui_impl_opengl3.cpp
+)
+
+# Include directories
+target_include_directories(imgui PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/imgui
+)
+target_include_directories(imgui_backends PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/imgui
+    ${CMAKE_CURRENT_SOURCE_DIR}/imgui/backends
+    ${CMAKE_CURRENT_SOURCE_DIR}/glfw/include
+)
+
+target_link_libraries(imgui_backends PUBLIC
+    imgui
+    glfw
+    OpenGL::GL
+)
+
+
 include(FetchContent)
 option(BUILD_MAIN  "Build main app executable" ON)
 
-# Create static libraries 
+# Create static libraries
 add_library(dbengine STATIC
    db.cpp
    sqlite3.c
 )
-target_include_directories(dbengine 
+
+set(APP_SOURCES
+    app.cpp
+)
+
+target_include_directories(dbengine
 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
 #--- Main Executable-----
 
 if(BUILD_MAIN)
-    add_executable(main_app main.cpp)
-    target_link_libraries(main_app PRIVATE dbengine)
+    add_executable(main_app ${APP_SOURCES} main.cpp)
+    target_link_libraries(main_app PRIVATE dbengine
+    imgui
+    imgui_backends
+    glfw
+    OpenGL::GL
+    )
 endif()
 
-#add_subdirectory(tests)
+add_subdirectory(tests)
 
 
 

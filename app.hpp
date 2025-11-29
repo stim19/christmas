@@ -62,7 +62,8 @@ namespace App {
 
     class GiftPlanner {
         public:
-            GiftPlanner(const std::string& filename);
+            GiftPlanner(){}
+            void init(const std::string& filename);
             ~GiftPlanner();
             
             void initialize_tables();

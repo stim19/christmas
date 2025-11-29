@@ -12,7 +12,7 @@ namespace App {
         return std::to_string(num);
     }
 
-    GiftPlanner::GiftPlanner(const std::string& filename) {
+    void GiftPlanner::init(const std::string& filename) {
         db=new DBEngine(filename, false);
     }
     GiftPlanner::~GiftPlanner() {

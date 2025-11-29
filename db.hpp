@@ -18,9 +18,9 @@ namespace Engine {
 class DBEngine;
 class Transactions;
 class PreparedStatement;
-
 class LRUCache;
 
+static DBEngine* Init(const std::string& path, bool debug=false, size_t cache_capacity=16);
 
 enum ENGINE_CODES {
     ENGINE_OK,
@@ -146,8 +146,7 @@ template<>
 inline bool Row::get<bool>(int col) const {
     return getInt(col)!=0;
 }
-// Completed. Users can now perform easy type conversion using Row templates
-
+// Completed.
 
 /* 
  * Class: DBEngine
@@ -225,7 +224,7 @@ class DBEngine {
  *  - All operations within the scope of the 'Transaction' are part of the transaction
  *  - If the 'Transaction' is destroyed without 'commit()', changes are automatically rolled back
  *  
- *  The recommended way is to use 'Transaction'
+ *  The recommended way is to use the Transaction class
  *  Manual control is supported for advanced use cases, but the caller is responsible for proper commit/rollback
  * 
  * Example:
