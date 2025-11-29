@@ -47,10 +47,14 @@ target_link_libraries(imgui_backends PUBLIC
 include(FetchContent)
 option(BUILD_MAIN  "Build main app executable" ON)
 
+
 # Create static libraries
 add_library(dbengine STATIC
    db.cpp
-   sqlite3.c
+   sqlite3/sqlite3.c
+)
+target_include_directories(dbengine PUBLIC
+   ${CMAKE_CURRENT_DIR}/sqlite3
 )
 
 set(APP_SOURCES
