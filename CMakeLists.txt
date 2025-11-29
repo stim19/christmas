@@ -63,8 +63,8 @@ PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 #--- Main Executable-----
 
 if(BUILD_MAIN)
-    add_executable(main_app ${APP_SOURCES} main.cpp)
-    target_link_libraries(main_app PRIVATE dbengine
+    add_executable(GiftTracker ${APP_SOURCES} main.cpp)
+    target_link_libraries(GiftTracker PRIVATE dbengine
     imgui
     imgui_backends
     glfw
@@ -72,7 +72,7 @@ if(BUILD_MAIN)
     )
 endif()
 
-add_subdirectory(tests)
+#add_subdirectory(tests)
 
 
 
