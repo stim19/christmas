@@ -91,7 +91,7 @@ Date parseDate(const std::string& date_str){
     std::istringstream ss(date_str);
     ss>>std::get_time(&t, "%d-%m-%Y");
     if(ss.fail())
-        std::cerr<<"Couldn't parse date string."<<std::endl;
+        throw std::runtime_error("Couldn't parse date string.");
     else {
         date.day = t.tm_mday;
         date.month = t.tm_mon + 1; // month starts at 0
@@ -101,6 +101,30 @@ Date parseDate(const std::string& date_str){
     return date;
 }
 
+static bool isDateValid(int day, int month , int year){
+    //check leap
+    bool isLeap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
+    if(year <2024) return false;
+    if (month >0 && month <=12){
+        if(day < 1 || day >31) return false;
+        else if(month == 2){
+            if(isLeap){
+                if(day > 29) return false;
+            }
+            else{
+                if(day > 28) return false;
+            }
+        }
+        else {
+            if(month % 2 == 1 && day > 30){
+                return false;
+            }
+        }
+        
+        return true;  
+    }
+    return false;    
+}
 
 //===========================================================
 //                      ImGui
@@ -193,9 +217,13 @@ static void SetupScreen() {
 static void DisplayGiftsTable() {
     const float TEXT_BASE_WIDTH = ImGui::CalcTextSize("A").x;
     const float TEXT_BASE_HEIGHT = ImGui::GetTextLineHeightWithSpacing();
-    static ImGuiTableFlags flags = ImGuiTableFlags_Borders | ImGuiTableFlags_Resizable | ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersV | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable;;
+    static ImGuiTableFlags flags = ImGuiTableFlags_Borders | ImGuiTableFlags_Resizable | ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersV | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable;
 
-    ImVec2 outer_size = ImVec2(0.0f, TEXT_BASE_HEIGHT * 15);
+    ImVec2 outer_size = ImVec2(0.0f, TEXT_BASE_HEIGHT * 15);    // table height
+
+    GiftPlanner& MyApp = appManager.getApp();
+    int GiftCount = MyApp.getGiftCount();
+
     if(ImGui::BeginTable("Gifts", 8, flags, outer_size)) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("Id", ImGuiTableColumnFlags_None);
@@ -207,8 +235,9 @@ static void DisplayGiftsTable() {
         ImGui::TableSetupColumn("Status", ImGuiTableColumnFlags_None);
         ImGui::TableSetupColumn("Link", ImGuiTableColumnFlags_None);
         ImGui::TableHeadersRow();
+        
         ImGuiListClipper clipper;
-        clipper.Begin(1000);
+        clipper.Begin(GiftCount);
         while (clipper.Step())
         {
             for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; row++)
@@ -224,6 +253,72 @@ static void DisplayGiftsTable() {
         
         ImGui::EndTable(); 
     } // table
+}
+
+static void EventsTab(){
+    
+    const float TEXT_BASE_WIDTH = ImGui::CalcTextSize("A").x;
+    const float TEXT_BASE_HEIGHT = ImGui::GetTextLineHeightWithSpacing();
+    static ImGuiTableFlags flags = ImGuiTableFlags_Borders | ImGuiTableFlags_Resizable | ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersV | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable;
+
+    ImVec2 outer_size = ImVec2(0.0f, TEXT_BASE_HEIGHT * 12);    // table height
+    
+    GiftPlanner& MyApp = appManager.getApp();
+    int EventCount = MyApp.getEventCount();
+    static char chbuf1[100];
+    static std::string name ="";
+    static std::string date = "";
+    static int day, month, year;
+    static bool valid = false;
+
+    ImGui::SeparatorText("Create Event");
+    ImGui::InputText("Event Name", chbuf1, IM_ARRAYSIZE(chbuf1));
+    name = chbuf1;
+    ImGui::InputInt("Day", &day);
+    ImGui::InputInt("Month", &month);
+    ImGui::InputInt("Year", &year);
+    if(ImGui::Button("Add")) {
+       valid = isDateValid(day, month, year);
+       if(valid)
+       {
+           Event e;
+           e.eventName = name;
+           e.eventDate = getDateStr(day, month, year);
+       }
+    }
+    if(!valid) ImGui::Text("Invalid Date");
+    ImGui::SeparatorText("Events");
+    if(ImGui::BeginTable("Events", 3, flags, outer_size)){
+    ImGui::EndTable();
+    }
+}
+
+static void MenuTabs() {
+    
+    ImGuiTabBarFlags tab_bar_flags = ImGuiTabBarFlags_None;
+    if (ImGui::BeginTabBar("MyTabBar", tab_bar_flags))
+    {
+        if (ImGui::BeginTabItem("Gifts"))
+        {
+            ImGui::Text("This is the Avocado tab!\nblah blah blah blah blah");
+            DisplayGiftsTable();
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Events"))
+        {
+            ImGui::Text("This is the Broccoli tab!\nblah blah blah blah blah");
+            EventsTab();
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("People"))
+        {
+            ImGui::Text("This is the Cucumber tab!\nblah blah blah blah blah");
+            ImGui::EndTabItem();
+        }
+        ImGui::EndTabBar();
+    }
+    
+    ImGui::Separator();
 }
 
 int main() {
@@ -317,6 +412,13 @@ int main() {
         appManager.setUser(user);
         username = appManager.getUserName().c_str();
     }
+
+    bool show_demo_window = true;
+    static ImGuiWindowFlags window_flags =  ImGuiWindowFlags_NoCollapse;
+    //window_flags |=  ImGuiWindowFlags_NoMove;
+    window_flags |=  ImGuiWindowFlags_NoResize;
+    //
+   
     
    
 //=========================================================
@@ -340,7 +442,7 @@ int main() {
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
-
+        ImGui::DockSpaceOverViewport();
         if(ShowSetupScreen) {
             SetupScreen();
             User user = MyApp.getUserData();
@@ -349,13 +451,19 @@ int main() {
         }
 
         if(ShowMainMenu){
-            ImGui::Begin("Main Menu");                          // Create a window called "Hello, world!" and append into it.    
-            ImGui::Text("Welcome...%s", username);
-            ImGui::SeparatorText("Gifts");
+            ImVec2 mySize = ImVec2(900, 500); // width 900, height 700
+            ImGui::SetNextWindowSize(mySize, ImGuiCond_Always);
+            ImGui::Begin("Main Menu",NULL, window_flags);       
 
-            DisplayGiftsTable(); 
+            ImGui::Text("Welcome...%s", username);
+            ImGui::SeparatorText("");
+            MenuTabs();
+                        
             ImGui::End();
         } //main menu
+
+        if(show_demo_window) ImGui::ShowDemoWindow(&show_demo_window);
+
 
         // Rendering
         ImGui::Render();
