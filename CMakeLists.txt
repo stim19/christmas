@@ -61,13 +61,21 @@ set(APP_SOURCES
     app.cpp
 )
 
+set(UI_SOURCES
+   ui/UIManager.cpp
+   
+)
+
 target_include_directories(dbengine
 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
 #--- Main Executable-----
 
 if(BUILD_MAIN)
-    add_executable(GiftTracker ${APP_SOURCES} main.cpp)
+    add_executable(GiftTracker ${APP_SOURCES} ${UI_SOURCES} main.cpp)
+    target_include_directories(GiftTracker PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/ui
+    )
     target_link_libraries(GiftTracker PRIVATE dbengine
     imgui
     imgui_backends
