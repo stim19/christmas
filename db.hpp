@@ -196,7 +196,7 @@ class DBEngine {
 
 /* 
  * If the 'Transaction' is destroyed without 'commit()', changes are automatically rolled back
- * Transaction class is the recommended way to manage transactions, you can still use DBEngine::begin()
+ * Transaction class is the recommended way to manage transactions, you can still use DBEngine.begin()
  */
 enum class TransactionState {
     NONE,
