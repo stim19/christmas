@@ -252,7 +252,7 @@ static void DisplayGiftsTab() {
     if(events.empty())
         SelectedEventNamePreview = "None";
     else
-        SelectedEventNamePreview = events[0].eventName;
+        SelectedEventNamePreview = events[SelectedEventIdx].eventName;
     
     ImGui::Text("Event");
     if(ImGui::BeginCombo("Events", SelectedEventNamePreview.c_str(), ComboFlags)){
