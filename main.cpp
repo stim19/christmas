@@ -269,8 +269,9 @@ static void EventsTab(){
     static std::string name ="";
     static std::string date = "";
     static int day, month, year;
-    static bool valid = false;
-
+    static bool valid = true;   // by default true for displaying error correctly
+    static std::vector<Event> events = MyApp.getEvents();
+    
     ImGui::SeparatorText("Create Event");
     ImGui::InputText("Event Name", chbuf1, IM_ARRAYSIZE(chbuf1));
     name = chbuf1;
@@ -284,12 +285,40 @@ static void EventsTab(){
            Event e;
            e.eventName = name;
            e.eventDate = getDateStr(day, month, year);
+           MyApp.addEvent(e);
+           ImGui::Text("Added new event");
+           events = MyApp.getEvents();
+           EventCount = MyApp.getEventCount();
        }
     }
+    
     if(!valid) ImGui::Text("Invalid Date");
     ImGui::SeparatorText("Events");
     if(ImGui::BeginTable("Events", 3, flags, outer_size)){
-    ImGui::EndTable();
+        ImGui::TableSetupScrollFreeze(0,1);
+        ImGui::TableSetupColumn("No.", ImGuiTableColumnFlags_None);
+        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_None);
+        ImGui::TableSetupColumn("Date", ImGuiTableColumnFlags_None);
+        ImGui::TableHeadersRow();
+        ImGuiListClipper clipper;
+        clipper.Begin(EventCount);
+        while(clipper.Step())
+        {
+            for (int row = clipper.DisplayStart; row<clipper.DisplayEnd; row++){
+                ImGui::TableNextRow();
+                for(int i=0; i<events.size(); i++){
+                    ImGui::TableSetColumnIndex(i);
+                    ImGui::Text("%d", events[i].eventId);
+                    ImGui::TableNextColumn();
+                    ImGui::TableSetColumnIndex(i+1);
+                    ImGui::Text("%s", events[i].eventName.c_str());
+                    ImGui::TableNextColumn();
+                    ImGui::TableSetColumnIndex(i+2);
+                    ImGui::Text("%s", events[i].eventDate.c_str());
+                }
+            }
+        }
+        ImGui::EndTable();
     }
 }
 
