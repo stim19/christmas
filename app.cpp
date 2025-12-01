@@ -173,9 +173,10 @@ namespace App {
         Row r(stmt.get());
         return r.get<int>(0);
     }
-    int GiftPlanner::getGiftCount() {
-        std::string query = "SELECT COUNT(*) FROM GIFTS;";
+    int GiftPlanner::getGiftCount(int eventId) {
+        std::string query = "SELECT COUNT(*) FROM GIFTS WHERE eventId = ?;";
         PreparedStatement stmt(db, query);
+        stmt.bind(1, eventId);
         stmt.step();
         Row r(stmt.get());
         return r.get<int>(0);

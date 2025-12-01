@@ -218,7 +218,7 @@ static void DisplayGiftsTab() {
     ImVec2 outer_size = ImVec2(0.0f, TEXT_BASE_HEIGHT * 15);    // table height
 
     GiftPlanner& MyApp = appManager.getApp();
-    int GiftCount = MyApp.getGiftCount();
+    int GiftCount = 0;
 
     static char chbuf1[100];
     static char chbuf2[100];
@@ -267,7 +267,11 @@ static void DisplayGiftsTab() {
         ImGui::EndCombo();
     }
 
-    if(!events.empty()) EventId = events[SelectedEventIdx].eventId;
+    if(!events.empty()) { 
+        EventId = events[SelectedEventIdx].eventId;
+        gifts = MyApp.fetchRecipientsAndGifts(EventId);
+        GiftCount = MyApp.getGiftCount(EventId);
+    }
     
     ImGui::SeparatorText("Add Gift");
     ImGui::InputText("Gift name", chbuf1, IM_ARRAYSIZE(chbuf1));
@@ -289,9 +293,6 @@ static void DisplayGiftsTab() {
     
     if(!people.empty()) RecipientId = people[PeopleSelectedIdx].id; 
 
-    if(events.size() != 0){
-        gifts = MyApp.fetchRecipientsAndGifts(EventId);
-    }
     
     ImGui::InputDouble("Budget", &Budget);
     ImGui::InputDouble("Price", &Price);
@@ -309,6 +310,7 @@ static void DisplayGiftsTab() {
         if(!flag) {
             MyApp.addGift(g);
             gifts = MyApp.fetchRecipientsAndGifts(EventId);
+            
         }
     }
 

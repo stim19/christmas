@@ -76,7 +76,7 @@ namespace App {
             std::vector<RecipientGifts> fetchRecipientsAndGifts(int eventId, int limit=-1, int offset=-1);
             int getEventCount();
             int getRecipientCount();
-            int getGiftCount();
+            int getGiftCount(int eventId);
             int totalGiftsPurchased();
             int totalMoneySpent();
             bool setupComplete();
