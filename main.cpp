@@ -234,10 +234,12 @@ static void DisplayGiftsTab() {
     static int SelectedEventIdx = 0;
     static std::string SelectedEventNamePreview = "";
     static ImGuiComboFlags ComboFlags = 0;
-
+    
+     
     std::vector<Event> events = MyApp.getEvents();
     std::vector<Recipient> people = MyApp.getRecipients();
     
+    //TODO: Replace this check with proper logic. This is just preventing crash
     if(events.empty()){
         flag = true;
         ImGui::Text("Create an event");
@@ -256,13 +258,15 @@ static void DisplayGiftsTab() {
     
     ImGui::Text("Event");
     if(ImGui::BeginCombo("Events", SelectedEventNamePreview.c_str(), ComboFlags)){
-        for (int n = 0; n < events.size(); n++){
+        if(!events.empty()) { 
+            for (int n = 0; n < events.size(); n++){
             const bool is_selected = (SelectedEventIdx == n);
             if(ImGui::Selectable(events[n].eventName.c_str(), is_selected)){
                     SelectedEventIdx = n;
             }
             if(is_selected)
                 ImGui::SetItemDefaultFocus();
+            }
         }
         ImGui::EndCombo();
     }
@@ -278,15 +282,19 @@ static void DisplayGiftsTab() {
     GiftName = chbuf1;
     
     static int PeopleSelectedIdx = 0;
-    const char* RecipientPreview = people[PeopleSelectedIdx].name.c_str();
+    const char* RecipientPreview = NULL;
+    if(!people.empty())             // TODO: handle empty vectors
+        RecipientPreview = people[PeopleSelectedIdx].name.c_str();
     if(ImGui::BeginCombo("Recipient", RecipientPreview, ComboFlags))
     {
-        for (int n = 0; n < people.size(); n++){
+        if(!people.empty()){
+            for (int n = 0; n < people.size(); n++){
             const bool is_selected = (PeopleSelectedIdx == n);
             if(ImGui::Selectable(people[n].name.c_str(), is_selected))
                 PeopleSelectedIdx = n;
             if(is_selected)
                 ImGui::SetItemDefaultFocus();
+            }
         }
         ImGui::EndCombo();
     }
