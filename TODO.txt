@@ -1,0 +1,6 @@
+1. Delete entries from Events, Recpients and Gifts
+2. Display analytics
+3. Visual charts for spending
+4. Engine API
+5. Stream row data for statements instead of manual get<T>
+6. Tests
