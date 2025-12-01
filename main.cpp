@@ -5,11 +5,7 @@
 #include <variant>
 #include <vector>
 #include <app.hpp>
-#include <cstdio>
-#include <conio.h>
-#include <csignal>
 #include <limits>
-#include <print>
 #include <iomanip>
 #include <ctime>
 #include "imgui.h"
@@ -214,7 +210,7 @@ static void SetupScreen() {
     ImGui::End();
 }
 
-static void DisplayGiftsTable() {
+static void DisplayGiftsTab() {
     const float TEXT_BASE_WIDTH = ImGui::CalcTextSize("A").x;
     const float TEXT_BASE_HEIGHT = ImGui::GetTextLineHeightWithSpacing();
     static ImGuiTableFlags flags = ImGuiTableFlags_Borders | ImGuiTableFlags_Resizable | ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersV | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable;
@@ -223,6 +219,98 @@ static void DisplayGiftsTable() {
 
     GiftPlanner& MyApp = appManager.getApp();
     int GiftCount = MyApp.getGiftCount();
+
+    static char chbuf1[100];
+    static char chbuf2[100];
+    static int RecipientId = 0;
+    static int EventId = 0;
+    static std::string GiftName = "";
+    static std::string Link ="";
+    static double Budget = 0.0;
+    static double Price = 0.0;
+    
+    static bool flag = false;
+
+    static int SelectedEventIdx = 0;
+    static std::string SelectedEventNamePreview = "";
+    static ImGuiComboFlags ComboFlags = 0;
+
+    std::vector<Event> events = MyApp.getEvents();
+    std::vector<Recipient> people = MyApp.getRecipients();
+    
+    if(events.empty()){
+        flag = true;
+        ImGui::Text("Create an event");
+    }
+    if(people.empty()){
+        flag = true;
+        ImGui::Text("Add a recipient");
+    }
+
+    static std::vector<RecipientGifts> gifts = {};
+
+    if(events.empty())
+        SelectedEventNamePreview = "None";
+    else
+        SelectedEventNamePreview = events[0].eventName;
+    
+    ImGui::Text("Event");
+    if(ImGui::BeginCombo("Events", SelectedEventNamePreview.c_str(), ComboFlags)){
+        for (int n = 0; n < events.size(); n++){
+            const bool is_selected = (SelectedEventIdx == n);
+            if(ImGui::Selectable(events[n].eventName.c_str(), is_selected)){
+                    SelectedEventIdx = n;
+            }
+            if(is_selected)
+                ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+
+    if(!events.empty()) EventId = events[SelectedEventIdx].eventId;
+    
+    ImGui::SeparatorText("Add Gift");
+    ImGui::InputText("Gift name", chbuf1, IM_ARRAYSIZE(chbuf1));
+    GiftName = chbuf1;
+    
+    static int PeopleSelectedIdx = 0;
+    const char* RecipientPreview = people[PeopleSelectedIdx].name.c_str();
+    if(ImGui::BeginCombo("Recipient", RecipientPreview, ComboFlags))
+    {
+        for (int n = 0; n < people.size(); n++){
+            const bool is_selected = (PeopleSelectedIdx == n);
+            if(ImGui::Selectable(people[n].name.c_str(), is_selected))
+                PeopleSelectedIdx = n;
+            if(is_selected)
+                ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+    
+    if(!people.empty()) RecipientId = people[PeopleSelectedIdx].id; 
+
+    if(events.size() != 0){
+        gifts = MyApp.fetchRecipientsAndGifts(EventId);
+    }
+    
+    ImGui::InputDouble("Budget", &Budget);
+    ImGui::InputDouble("Price", &Price);
+    ImGui::InputText("GiftLink", chbuf2, IM_ARRAYSIZE(chbuf2));
+    Link = chbuf2;
+    
+    if(ImGui::Button("Add")){
+        Gift g;
+        g.recipientId = RecipientId;
+        g.eventId = EventId;
+        g.name = GiftName;
+        g.link = Link;
+        g.budgetLimit = Budget;
+        g.price = Price;
+        if(!flag) {
+            MyApp.addGift(g);
+            gifts = MyApp.fetchRecipientsAndGifts(EventId);
+        }
+    }
 
     if(ImGui::BeginTable("Gifts", 8, flags, outer_size)) {
         ImGui::TableSetupScrollFreeze(0, 1);
@@ -236,6 +324,8 @@ static void DisplayGiftsTable() {
         ImGui::TableSetupColumn("Link", ImGuiTableColumnFlags_None);
         ImGui::TableHeadersRow();
         
+        const char* GiftStatus[] = {"Idea", "Ordered", "Purchased", "Cancelled"};
+        int i = 0;
         ImGuiListClipper clipper;
         clipper.Begin(GiftCount);
         while (clipper.Step())
@@ -243,14 +333,36 @@ static void DisplayGiftsTable() {
             for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; row++)
             {
                 ImGui::TableNextRow();
-                for (int column = 0; column < 3; column++)
-                {
-                    ImGui::TableSetColumnIndex(column);
-                    ImGui::Text("Hello %d,%d", column, row);
-                }
+                ImGui::PushID(i);
+                int idx = 0;
+                ImGui::TableSetColumnIndex(idx);
+                ImGui::Text("%d", gifts[i].giftId);
+                ImGui::TableNextColumn();
+                ImGui::TableSetColumnIndex(idx+1);
+                ImGui::Text("%s", gifts[i].recipientName.c_str());
+                ImGui::TableNextColumn();
+                ImGui::TableSetColumnIndex(idx+2);
+                ImGui::Text("%s", gifts[i].giftName.c_str());
+                ImGui::TableNextColumn();
+                ImGui::TableSetColumnIndex(idx+3);
+                ImGui::Text("%s", gifts[i].recipientRelationship.c_str());
+                ImGui::TableNextColumn();
+                ImGui::TableSetColumnIndex(idx+4);
+                ImGui::Text("%s", std::to_string(gifts[i].giftBudget).c_str()); 
+                ImGui::TableNextColumn();
+                ImGui::TableSetColumnIndex(idx+5);
+                ImGui::Text("%s", std::to_string(gifts[i].giftPrice).c_str());
+                ImGui::TableNextColumn();
+                ImGui::TableSetColumnIndex(idx+6);
+                int status = static_cast<int>(gifts[i].giftStatus);
+                ImGui::Text("%s", GiftStatus[status]);
+                ImGui::TableNextColumn();
+                ImGui::TableSetColumnIndex(idx+7);
+                ImGui::TextLinkOpenURL("Link", gifts[i].giftLink.c_str());
+                ImGui::PopID();
+                i++;
             }
-        }
-        
+        }       
         ImGui::EndTable(); 
     } // table
 }
@@ -286,7 +398,6 @@ static void EventsTab(){
            e.eventName = name;
            e.eventDate = getDateStr(day, month, year);
            MyApp.addEvent(e);
-           ImGui::Text("Added new event");
            events = MyApp.getEvents();
            EventCount = MyApp.getEventCount();
        }
@@ -302,26 +413,85 @@ static void EventsTab(){
         ImGui::TableHeadersRow();
         ImGuiListClipper clipper;
         clipper.Begin(EventCount);
+        int i = 0;
         while(clipper.Step())
         {
             for (int row = clipper.DisplayStart; row<clipper.DisplayEnd; row++){
                 ImGui::TableNextRow();
-                for(int i=0; i<events.size(); i++){
-                    ImGui::TableSetColumnIndex(i);
-                    ImGui::Text("%d", events[i].eventId);
-                    ImGui::TableNextColumn();
-                    ImGui::TableSetColumnIndex(i+1);
-                    ImGui::Text("%s", events[i].eventName.c_str());
-                    ImGui::TableNextColumn();
-                    ImGui::TableSetColumnIndex(i+2);
-                    ImGui::Text("%s", events[i].eventDate.c_str());
-                }
+                int idx = 0;
+                ImGui::TableSetColumnIndex(idx);
+                ImGui::Text("%d", events[i].eventId);
+                ImGui::TableNextColumn();
+                ImGui::TableSetColumnIndex(idx+1);
+                ImGui::Text("%s", events[i].eventName.c_str());
+                ImGui::TableNextColumn();
+                ImGui::TableSetColumnIndex(idx+2);
+                ImGui::Text("%s", events[i].eventDate.c_str());
+                i++;
             }
         }
         ImGui::EndTable();
     }
 }
 
+static void PeopleTab(){
+    const float TEXT_BASE_WIDTH = ImGui::CalcTextSize("A").x;
+    const float TEXT_BASE_HEIGHT = ImGui::GetTextLineHeightWithSpacing();
+    static ImGuiTableFlags flags = ImGuiTableFlags_Borders | ImGuiTableFlags_Resizable | ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersV | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable;
+
+    ImVec2 outer_size = ImVec2(0.0f, TEXT_BASE_HEIGHT * 12);    // table height
+    
+    GiftPlanner& MyApp = appManager.getApp();
+    static char chbuf1[100];
+    static char chbuf2[100];
+    int PeopleCount = MyApp.getRecipientCount();
+    static std::string name ="";
+    static std::string relationship ="";
+    static std::vector<Recipient> people = MyApp.getRecipients();
+    static ImGuiTextFilter filter;
+
+    static ImGuiComboFlags ComboFlags = 0;
+    const char* relations[] = {"Friend", "Family", "Work"};
+    static int item_selected_idx = 0;
+    const char* preview = relations[item_selected_idx];
+
+    ImGui::SeparatorText("Add ppl");
+    ImGui::InputText("Name", chbuf1, IM_ARRAYSIZE(chbuf1));
+    name = chbuf1;
+    
+    if (ImGui::BeginCombo("Relationship", preview, ComboFlags))
+    {
+        for (int n = 0; n < IM_ARRAYSIZE(relations); n++)
+        {
+            const bool is_selected = (item_selected_idx == n);
+            if (ImGui::Selectable(relations[n], is_selected))
+                item_selected_idx = n;
+
+            // Set the initial focus when opening the combo (scrolling + keyboard navigation focus)
+            if (is_selected)
+                    ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+
+    relationship = relations[item_selected_idx];
+    if(ImGui::Button("Add")){
+        Recipient r;
+        r.name = name; r.relationship = relationship;
+        MyApp.addRecipient(r);
+        people = MyApp.getRecipients();
+    }
+
+    ImGui::SeparatorText("People");
+    filter.Draw();
+    for (int i = 0; i < people.size(); i++){
+        if(filter.PassFilter(people[i].name.c_str())){
+            ImGui::BulletText("%s", people[i].name.c_str()); ImGui::SameLine();
+            ImGui::Text("| %s", people[i].relationship.c_str());
+        }
+    }
+    
+}
 static void MenuTabs() {
     
     ImGuiTabBarFlags tab_bar_flags = ImGuiTabBarFlags_None;
@@ -330,7 +500,7 @@ static void MenuTabs() {
         if (ImGui::BeginTabItem("Gifts"))
         {
             ImGui::Text("This is the Avocado tab!\nblah blah blah blah blah");
-            DisplayGiftsTable();
+            DisplayGiftsTab();
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("Events"))
@@ -342,6 +512,7 @@ static void MenuTabs() {
         if (ImGui::BeginTabItem("People"))
         {
             ImGui::Text("This is the Cucumber tab!\nblah blah blah blah blah");
+            PeopleTab();
             ImGui::EndTabItem();
         }
         ImGui::EndTabBar();
@@ -491,8 +662,6 @@ int main() {
             ImGui::End();
         } //main menu
 
-        if(show_demo_window) ImGui::ShowDemoWindow(&show_demo_window);
-
 
         // Rendering
         ImGui::Render();
@@ -520,7 +689,6 @@ int main() {
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
-
     glfwDestroyWindow(window);
     glfwTerminate();
 

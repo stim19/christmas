@@ -27,7 +27,7 @@ namespace App {
         int id = 0;
         std::string name;
         std::string relationship;
-        double budgetLimit = 0.0;
+       
     };
     
     struct Gift {
@@ -36,6 +36,7 @@ namespace App {
         int eventId=0;
         std::string name;
         std::string link;
+        double budgetLimit = 0.0;
         double price;
         GiftStatus status = GiftStatus::IDEA;
     };
@@ -47,7 +48,7 @@ namespace App {
         std::string recipientRelationship;
         std::string giftName;
         std::string giftLink;
-        double recipientBudget;
+        double giftBudget;
         double giftPrice;
         GiftStatus giftStatus;
         std::string eventName;
@@ -72,7 +73,7 @@ namespace App {
             void addGift(Gift gift);
             void addEvent(Event event);
             void markGiftAsPurchased(int giftId);
-            std::vector<RecipientGifts> fetchRecipientsAndGifts(int limit=-1, int offset=-1);
+            std::vector<RecipientGifts> fetchRecipientsAndGifts(int eventId, int limit=-1, int offset=-1);
             int getEventCount();
             int getRecipientCount();
             int getGiftCount();

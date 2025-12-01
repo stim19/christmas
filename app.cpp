@@ -29,8 +29,7 @@ namespace App {
         CREATE TABLE IF NOT EXISTS RECIPIENTS (
             ID INTEGER PRIMARY KEY AUTOINCREMENT,
             Name TEXT NOT NULL,
-            Relationship TEXT,
-            Budget TEXT 
+            Relationship TEXT
             );
         )";
 
@@ -41,6 +40,7 @@ namespace App {
             EventID INTEGER NOT NULL,
             Name TEXT NOT NULL,
             Link TEXT,
+            Budget TEXT,
             Price TEXT,
             Status INTEGER DEFAULT 0,
             Date TEXT,
@@ -78,22 +78,22 @@ namespace App {
 
     void GiftPlanner::addRecipient(Recipient recipient) {
         Transaction tx(db);
-        PreparedStatement stmt(db, "INSERT INTO RECIPIENTS(name, relationship, budget) VALUES(?, ?, ?);");
+        PreparedStatement stmt(db, "INSERT INTO RECIPIENTS(name, relationship) VALUES(?, ?);");
         stmt.bind(1, recipient.name);
-        stmt.bind(2, recipient.relationship);
-        stmt.bind(3, doubleToStr(recipient.budgetLimit));
+        stmt.bind(2, recipient.relationship); 
         stmt.step();
         tx.commit();
     }
     void GiftPlanner::addGift(Gift gift) {
         Transaction tx(db);
-        PreparedStatement stmt(db, "INSERT INTO GIFTS(recipientId, name, link, price, status, eventId) VALUES(?, ?, ?, ?, ?, ?);");
+        PreparedStatement stmt(db, "INSERT INTO GIFTS(recipientId, name, link, price, status, eventId, budget) VALUES(?, ?, ?, ?, ?, ?, ?);");
         stmt.bind(1, gift.recipientId);
         stmt.bind(2, gift.name);
         stmt.bind(3, gift.link);
         stmt.bind(4, doubleToStr(gift.price));
         stmt.bind(5, static_cast<int>(gift.status));
         stmt.bind(6, gift.eventId);
+        stmt.bind(7, doubleToStr(gift.budgetLimit));
         stmt.step();
         tx.commit();
     }
@@ -114,17 +114,18 @@ namespace App {
         tx.commit();
     }
    
-    std::vector<RecipientGifts> GiftPlanner::fetchRecipientsAndGifts(int limit, int offset){
+    std::vector<RecipientGifts> GiftPlanner::fetchRecipientsAndGifts(int eventId, int limit, int offset){
         int columnCount=0;
         std::vector<RecipientGifts> rows;
         bool paged=false;
         
-        std::string query = "SELECT recipients.id, recipients.name, recipients.relationship, recipients.budget, "
-                            "gifts.id AS giftId, gifts.name AS giftName, gifts.link, gifts.price, gifts.status, "
+        std::string query = "SELECT recipients.id, recipients.name, recipients.relationship, "
+                            "gifts.id AS giftId, gifts.name AS giftName, gifts.link, gifts.budget, gifts.price, gifts.status, "
                             "events.name, events.date "
                             "FROM gifts "
                             "JOIN recipients ON recipients.id = gifts.recipientid "
-                            "JOIN events ON events.id = gifts.eventId";
+                            "JOIN events ON events.id = gifts.eventId "
+                            "WHERE events.id = ?";
         
         if(limit>-1 && offset> -1) {
             query+= " LIMIT ? OFFSET ?";
@@ -133,9 +134,11 @@ namespace App {
         query += ";";
 
         PreparedStatement stmt(db, query);
+        
+        stmt.bind(1,eventId);
         if(paged){
-            stmt.bind(1, limit);
-            stmt.bind(2, offset);
+            stmt.bind(2, limit);
+            stmt.bind(3, offset);
         }
         while(stmt.step()==ENGINE_ROW) {
             Row r(stmt.get());
@@ -143,10 +146,10 @@ namespace App {
             row.recipientId = r.get<int>(0);
             row.recipientName = r.get<std::string>(1);
             row.recipientRelationship = r.get<std::string>(2).empty() ? "" : r.get<std::string>(2);
-            row.recipientBudget =  r.get<std::string>(3).empty() ? 0.0 : strToDouble(r.get<std::string>(3));
-            row.giftId = r.get<int>(4);
-            row.giftName = r.get<std::string>(5);
-            row.giftLink =  r.get<std::string>(6).empty() ? "" : r.get<std::string>(6);
+            row.giftId = r.get<int>(3);
+            row.giftName = r.get<std::string>(4);
+            row.giftLink =  r.get<std::string>(5).empty() ? "" : r.get<std::string>(5);
+            row.giftBudget =  r.get<std::string>(6).empty() ? 0.0 : strToDouble(r.get<std::string>(6));
             row.giftPrice = r.get<std::string>(7).empty() ? 0.0 : strToDouble(r.get<std::string>(7));
             row.giftStatus = static_cast<GiftStatus>(r.get<int>(8));
             row.eventName = r.get<std::string>(9).empty() ? "" : r.get<std::string>(9);
@@ -243,7 +246,6 @@ namespace App {
             recipient.id = r.get<int>(0);
             recipient.name = r.get<std::string>(1);
             recipient.relationship = r.get<std::string>(2);
-            recipient.budgetLimit = r.get<std::string>(3).empty() ? 0.0 : strToDouble(r.get<std::string>(3));
             recipients.push_back(recipient);
         }
 
